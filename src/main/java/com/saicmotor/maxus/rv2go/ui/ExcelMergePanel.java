@@ -16,13 +16,17 @@ import java.util.List;
 public class ExcelMergePanel extends JPanel {
     private JTextField file1Field;
     private JTextField file2Field;
+    private JTextField file3Field;
     private JTextField joinKeysField;
     private JTextField columnsToMergeField;
+    private JTextField excludeKeysField;
+    private JCheckBox enableExcludeCheckBox;
     private JTextArea logArea;
     private JButton executeButton;
 
     private File selectedFile1;
     private File selectedFile2;
+    private File selectedFile3;
 
     private final ExcelService excelService;
 
@@ -118,6 +122,23 @@ public class ExcelMergePanel extends JPanel {
         btnBrowse2.addActionListener(e -> selectFile(2));
         panel.add(btnBrowse2, gbc);
 
+        // 表 3 文件选择
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        panel.add(new JLabel("表 3（排除表）:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        file3Field = new JTextField(30);
+        file3Field.setEditable(false);
+        panel.add(file3Field, gbc);
+
+        gbc.gridx = 2;
+        gbc.weightx = 0;
+        JButton btnBrowse3 = new JButton("浏览...");
+        btnBrowse3.addActionListener(e -> selectFile(3));
+        panel.add(btnBrowse3, gbc);
+
         return panel;
     }
 
@@ -152,15 +173,42 @@ public class ExcelMergePanel extends JPanel {
         columnsToMergeField.setToolTipText("输入要从表2合并到表1的列名，多个列名用逗号分隔");
         panel.add(columnsToMergeField, gbc);
 
-        // 说明标签
+        // 启用表3排除
         gbc.gridx = 0;
         gbc.gridy = 2;
+        gbc.weightx = 0;
+        enableExcludeCheckBox = new JCheckBox("启用表3排除");
+        enableExcludeCheckBox.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        enableExcludeCheckBox.addActionListener(e -> toggleExcludeFields());
+        panel.add(enableExcludeCheckBox, gbc);
+
+        // 表1表3关联列名
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        panel.add(new JLabel("排除关联列:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        excludeKeysField = new JTextField(30);
+        excludeKeysField.setEnabled(false);
+        excludeKeysField.setToolTipText("输入表1和表3用于匹配排除的列名，多个列名用逗号分隔");
+        panel.add(excludeKeysField, gbc);
+
+        // 说明标签
+        gbc.gridx = 0;
+        gbc.gridy = 4;
         gbc.gridwidth = 2;
-        JLabel hintLabel = new JLabel("<html><i>说明：关联列名是两张表中用于匹配数据的列；表2合并列是要从表2复制到表1的列</i></html>");
+        JLabel hintLabel = new JLabel("<html><i>说明：关联列名是两张表中用于匹配数据的列；表2合并列是要从表2复制到表1的列<br>启用表3排除后，表1中与表3匹配的数据将被删除</i></html>");
         hintLabel.setFont(new Font("微软雅黑", Font.PLAIN, 11));
         panel.add(hintLabel, gbc);
 
         return panel;
+    }
+
+    private void toggleExcludeFields() {
+        boolean enabled = enableExcludeCheckBox.isSelected();
+        excludeKeysField.setEnabled(enabled);
+        file3Field.setEnabled(enabled);
     }
 
     private void selectFile(int fileNumber) {
@@ -184,9 +232,12 @@ public class ExcelMergePanel extends JPanel {
             if (fileNumber == 1) {
                 selectedFile1 = selectedFile;
                 file1Field.setText(selectedFile.getAbsolutePath());
-            } else {
+            } else if (fileNumber == 2) {
                 selectedFile2 = selectedFile;
                 file2Field.setText(selectedFile.getAbsolutePath());
+            } else if (fileNumber == 3) {
+                selectedFile3 = selectedFile;
+                file3Field.setText(selectedFile.getAbsolutePath());
             }
         }
     }
@@ -194,7 +245,7 @@ public class ExcelMergePanel extends JPanel {
     private void executeMerge(ActionEvent e) {
         // 验证输入
         if (selectedFile1 == null || selectedFile2 == null) {
-            JOptionPane.showMessageDialog(this, "请选择两个 Excel 文件", "错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "请选择表 1 和表 2 的 Excel 文件", "错误", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -211,9 +262,31 @@ public class ExcelMergePanel extends JPanel {
             return;
         }
 
+        // 验证表3排除配置
+        boolean enableExclude = enableExcludeCheckBox.isSelected();
+        String excludeKeys = null;
+        if (enableExclude) {
+            if (selectedFile3 == null) {
+                JOptionPane.showMessageDialog(this, "启用表3排除后，请选择表 3 的 Excel 文件", "错误", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            excludeKeys = excludeKeysField.getText().trim();
+            if (excludeKeys.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "请输入排除关联列名", "错误", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        }
+
         // 禁用按钮
         executeButton.setEnabled(false);
         logArea.setText("开始执行合并操作...\n");
+
+        // 保存为 final 变量供内部类使用
+        final File file1 = selectedFile1;
+        final File file2 = selectedFile2;
+        final File file3 = selectedFile3;
+        final boolean isExcludeEnabled = enableExclude;
+        final String excludeKeysStr = excludeKeys;
 
         // 在后台线程执行
         new SwingWorker<Boolean, String>() {
@@ -230,24 +303,51 @@ public class ExcelMergePanel extends JPanel {
                     columnsArray[i] = columnsArray[i].trim();
                 }
 
-                publish("正在读取表 1: " + selectedFile1.getName());
-                publish("正在读取表 2: " + selectedFile2.getName());
+                publish("正在读取表 1: " + file1.getName());
+                publish("正在读取表 2: " + file2.getName());
+                if (isExcludeEnabled) {
+                    publish("正在读取表 3: " + file3.getName());
+                }
                 publish("关联列: " + String.join(", ", joinKeyArray));
                 publish("合并列: " + String.join(", ", columnsArray));
+                if (isExcludeEnabled) {
+                    String[] excludeKeyArray = excludeKeysStr.split("[,，]");
+                    for (int i = 0; i < excludeKeyArray.length; i++) {
+                        excludeKeyArray[i] = excludeKeyArray[i].trim();
+                    }
+                    publish("排除关联列: " + String.join(", ", excludeKeyArray));
+                }
 
                 // 生成输出文件路径
-                String outputPath = selectedFile1.getParent();
-                String outputFileName = "merged_" + selectedFile1.getName();
+                String outputPath = file1.getParent();
+                String outputFileName = "merged_" + file1.getName();
                 File outputFile = new File(outputPath, outputFileName);
 
                 publish("开始执行合并...");
-                boolean success = excelService.mergeExcelFiles(
-                        selectedFile1,
-                        selectedFile2,
-                        joinKeyArray,
-                        columnsArray,
-                        outputFile
-                );
+                boolean success;
+                if (isExcludeEnabled) {
+                    String[] excludeKeyArray = excludeKeysStr.split("[,，]");
+                    for (int i = 0; i < excludeKeyArray.length; i++) {
+                        excludeKeyArray[i] = excludeKeyArray[i].trim();
+                    }
+                    success = excelService.mergeExcelFilesWithExclude(
+                            file1,
+                            file2,
+                            file3,
+                            joinKeyArray,
+                            columnsArray,
+                            excludeKeyArray,
+                            outputFile
+                    );
+                } else {
+                    success = excelService.mergeExcelFiles(
+                            file1,
+                            file2,
+                            joinKeyArray,
+                            columnsArray,
+                            outputFile
+                    );
+                }
 
                 if (success) {
                     publish("合并完成！");
