@@ -29,6 +29,7 @@ jobs:
         run: mvn clean package -P windows
 
       - name: Create Windows runtime image with jlink
+        shell: cmd
         run: |
           jlink --output jre-runtime ^
                 --add-modules java.base,java.sql,java.xml,java.desktop,java.naming ^
@@ -37,6 +38,7 @@ jobs:
                 --compress=2
 
       - name: Package with jpackage
+        shell: cmd
         run: |
           jpackage ^
             --name "数据处理器" ^
