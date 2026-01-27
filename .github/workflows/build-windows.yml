@@ -41,7 +41,7 @@ jobs:
         shell: cmd
         run: |
           jpackage ^
-            --name "数据处理器" ^
+            --name "DataProcessor" ^
             --dest target/dist ^
             --input target ^
             --main-jar data-processor-1.0.0-jar-with-dependencies.jar ^
