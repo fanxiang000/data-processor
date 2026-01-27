@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.saicmotor.maxus.rv2go</groupId>
+    <artifactId>data-processor</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <poi.version>5.2.3</poi.version>
+        <app.name>data-processor</app.name>
+        <app.version>1.0.0</app.version>
+    </properties>
+
+    <dependencies>
+        <!-- Apache POI for Excel processing -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi</artifactId>
+            <version>${poi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>8</source>
+                    <target>8</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Assembly Plugin - 打包成可执行 JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.saicmotor.maxus.rv2go.Main</mainClass>
+                        </manifest>
+                    </archive>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
+                    <finalName>${app.name}-${app.version}</finalName>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- jpackage Plugin -->
+            <plugin>
+                <groupId>org.panteleyev</groupId>
+                <artifactId>jpackage-maven-plugin</artifactId>
+                <version>1.6.0</version>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Windows 打包配置 (使用 jpackage) -->
+        <profile>
+            <id>windows</id>
+            <properties>
+                <windows.jdk.version>23</windows.jdk.version>
+            </properties>
+            <build>
+                <plugins>
+                    <!-- jpackage Plugin - 打包成 Windows .exe -->
+                    <plugin>
+                        <groupId>org.panteleyev</groupId>
+                        <artifactId>jpackage-maven-plugin</artifactId>
+                        <version>1.6.0</version>
+                        <configuration>
+                            <name>DataProcessor</name>
+                            <appVersion>${app.version}</appVersion>
+                            <vendor>SAIC Motor</vendor>
+                            <destination>${project.build.directory}/dist</destination>
+                            <input>${project.build.directory}</input>
+                            <mainJar>${app.name}-${app.version}-jar-with-dependencies.jar</mainJar>
+                            <mainClass>com.saicmotor.maxus.rv2go.Main</mainClass>
+                            <runtimeImage>${project.basedir}/jdk/windows/jdk-${windows.jdk.version}</runtimeImage>
+                            <javaOptions>
+                                <option>-Dfile.encoding=UTF-8</option>
+                                <option>-Xms128m</option>
+                                <option>-Xmx512m</option>
+                            </javaOptions>
+                            <winMenu>true</winMenu>
+                            <winDirChooser>true</winDirChooser>
+                            <winShortcut>true</winShortcut>
+                            <winPerUserInstall>false</winPerUserInstall>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- macOS 打包配置 (本地测试) -->
+        <profile>
+            <id>macos</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.panteleyev</groupId>
+                        <artifactId>jpackage-maven-plugin</artifactId>
+                        <version>1.6.0</version>
+                        <configuration>
+                            <name>DataProcessor</name>
+                            <appVersion>${app.version}</appVersion>
+                            <vendor>SAIC Motor</vendor>
+                            <destination>${project.build.directory}/dist</destination>
+                            <input>${project.build.directory}</input>
+                            <mainJar>${app.name}-${app.version}-jar-with-dependencies.jar</mainJar>
+                            <mainClass>com.saicmotor.maxus.rv2go.Main</mainClass>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>

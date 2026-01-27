@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile:*)",
+      "Bash(./mvnw compile:*)",
+      "Bash(bash /Users/fanxiang/IdeaProjects/untitled/.mvn/wrapper/maven-wrapper.jar)",
+      "Bash(chmod:*)",
+      "Bash(java -version:*)",
+      "Bash(mvn:*)",
+      "Bash(curl:*)",
+      "Bash(unzip:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
