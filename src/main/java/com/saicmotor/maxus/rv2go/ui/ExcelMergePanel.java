@@ -1327,13 +1327,18 @@ public class ExcelMergePanel extends JPanel {
     }
 
     /**
-     * 列选择对话框
+     * 列选择对话框（双列表穿梭框）
      */
     private static class ColumnSelectorDialog extends JDialog {
-        private JList<String> columnList;
+        private JList<String> availableList;      // 左边：可用列
+        private JList<String> selectedList;       // 右边：已选列
+        private DefaultListModel<String> availableModel;
+        private DefaultListModel<String> selectedModel;
+        private JButton btnAdd;
+        private JButton btnRemove;
+        private JButton btnAddAll;
+        private JButton btnRemoveAll;
         private JButton okButton;
-        private JButton selectAllButton;
-        private JButton clearButton;
         private List<String> selectedColumns;
 
         public ColumnSelectorDialog(JFrame parent, String title, List<String> columns) {
@@ -1347,33 +1352,97 @@ public class ExcelMergePanel extends JPanel {
 
         private void initComponents(List<String> columns) {
             setLayout(new BorderLayout(10, 10));
+            ((JComponent) getContentPane()).setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
             // 顶部说明
-            JLabel hintLabel = new JLabel("请选择列名（支持多选）：");
-            hintLabel.setFont(new Font("微软雅黑", Font.PLAIN, 13));
-            add(hintLabel, BorderLayout.NORTH);
+            JPanel hintPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            JLabel hintLabel = new JLabel("选择需要的列名：");
+            hintLabel.setFont(new Font("微软雅黑", Font.BOLD, 13));
+            hintLabel.setForeground(new Color(52, 73, 94));
+            hintPanel.add(hintLabel);
+            add(hintPanel, BorderLayout.NORTH);
 
-            // 中间列表
-            columnList = new JList<>(columns.toArray(new String[0]));
-            columnList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-            columnList.setFont(new Font("微软雅黑", Font.PLAIN, 13));
-            JScrollPane scrollPane = new JScrollPane(columnList);
-            add(scrollPane, BorderLayout.CENTER);
+            // 中间主面板（左右列表）
+            JPanel mainPanel = new JPanel(new GridBagLayout());
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(5, 5, 5, 5);
+            gbc.fill = GridBagConstraints.BOTH;
+            gbc.weighty = 1.0;
+
+            Font listFont = new Font("微软雅黑", Font.PLAIN, 13);
+
+            // 左边：可用列
+            JPanel leftPanel = createListPanel("可用列", listFont);
+            availableModel = new DefaultListModel<>();
+            for (String col : columns) {
+                availableModel.addElement(col);
+            }
+            availableList = new JList<>(availableModel);
+            availableList.setFont(listFont);
+            availableList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+            JScrollPane leftScroll = new JScrollPane(availableList);
+            leftScroll.setPreferredSize(new Dimension(200, 300));
+            leftPanel.add(leftScroll, BorderLayout.CENTER);
+
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            gbc.weightx = 1.0;
+            mainPanel.add(leftPanel, gbc);
+
+            // 中间：移动按钮
+            JPanel buttonPanel = new JPanel(new GridLayout(4, 1, 5, 5));
+            buttonPanel.setBorder(BorderFactory.createEmptyBorder(30, 10, 30, 10));
+
+            btnAdd = createMoveButton("▶ 添加");
+            btnAdd.addActionListener(e -> moveSelected(availableList, availableModel, selectedModel));
+
+            btnRemove = createMoveButton("◀ 移除");
+            btnRemove.addActionListener(e -> moveSelected(selectedList, selectedModel, availableModel));
+
+            btnAddAll = createMoveButton("▶▶ 全部");
+            btnAddAll.addActionListener(e -> moveAll(availableModel, selectedModel));
+
+            btnRemoveAll = createMoveButton("◀◀ 全部");
+            btnRemoveAll.addActionListener(e -> moveAll(selectedModel, availableModel));
+
+            buttonPanel.add(btnAdd);
+            buttonPanel.add(btnRemove);
+            buttonPanel.add(btnAddAll);
+            buttonPanel.add(btnRemoveAll);
+
+            gbc.gridx = 1;
+            gbc.gridy = 0;
+            gbc.weightx = 0;
+            mainPanel.add(buttonPanel, gbc);
+
+            // 右边：已选列
+            JPanel rightPanel = createListPanel("已选列", listFont);
+            selectedModel = new DefaultListModel<>();
+            selectedList = new JList<>(selectedModel);
+            selectedList.setFont(listFont);
+            selectedList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+            JScrollPane rightScroll = new JScrollPane(selectedList);
+            rightScroll.setPreferredSize(new Dimension(200, 300));
+            rightPanel.add(rightScroll, BorderLayout.CENTER);
+
+            gbc.gridx = 2;
+            gbc.gridy = 0;
+            gbc.weightx = 1.0;
+            mainPanel.add(rightPanel, gbc);
+
+            add(mainPanel, BorderLayout.CENTER);
 
             // 底部按钮
-            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            selectAllButton = new JButton("全选");
-            selectAllButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            selectAllButton.addActionListener(e -> columnList.setSelectionInterval(0, columnList.getModel().getSize() - 1));
-
-            clearButton = new JButton("清空");
-            clearButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            clearButton.addActionListener(e -> columnList.clearSelection());
-
+            JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             okButton = new JButton("确定");
             okButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+            okButton.setPreferredSize(new Dimension(70, 28));
             okButton.addActionListener(e -> {
-                selectedColumns = columnList.getSelectedValuesList();
+                // 将已选列转换为列表
+                selectedColumns = new ArrayList<>();
+                for (int i = 0; i < selectedModel.size(); i++) {
+                    selectedColumns.add(selectedModel.getElementAt(i));
+                }
                 if (selectedColumns.isEmpty()) {
                     selectedColumns = null;
                 }
@@ -1382,19 +1451,94 @@ public class ExcelMergePanel extends JPanel {
 
             JButton cancelButton = new JButton("取消");
             cancelButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+            cancelButton.setPreferredSize(new Dimension(70, 28));
             cancelButton.addActionListener(e -> {
                 selectedColumns = null;
                 dispose();
             });
 
-            buttonPanel.add(selectAllButton);
-            buttonPanel.add(clearButton);
-            buttonPanel.add(Box.createHorizontalStrut(10));
-            buttonPanel.add(okButton);
-            buttonPanel.add(cancelButton);
-            add(buttonPanel, BorderLayout.SOUTH);
+            bottomPanel.add(okButton);
+            bottomPanel.add(cancelButton);
+            add(bottomPanel, BorderLayout.SOUTH);
 
             getRootPane().setDefaultButton(okButton);
+        }
+
+        /**
+         * 创建列表面板
+         */
+        private JPanel createListPanel(String title, Font font) {
+            JPanel panel = new JPanel(new BorderLayout());
+            panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(200, 205, 210), 1),
+                title,
+                javax.swing.border.TitledBorder.LEFT,
+                javax.swing.border.TitledBorder.TOP,
+                new Font("微软雅黑", Font.BOLD, 12),
+                new Color(52, 73, 94)
+            ));
+            panel.setBackground(new Color(255, 255, 255));
+            return panel;
+        }
+
+        /**
+         * 创建移动按钮
+         */
+        private JButton createMoveButton(String text) {
+            JButton btn = new JButton(text);
+            btn.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+            btn.setPreferredSize(new Dimension(80, 30));
+            btn.setFocusPainted(false);
+            btn.setBackground(new Color(240, 244, 248));
+            btn.setForeground(new Color(52, 73, 94));
+            btn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 205, 210), 1),
+                BorderFactory.createEmptyBorder(5, 10, 5, 10)
+            ));
+            btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+            // 悬停效果
+            btn.addMouseListener(new java.awt.event.MouseAdapter() {
+                public void mouseEntered(java.awt.event.MouseEvent e) {
+                    btn.setBackground(new Color(220, 230, 240));
+                }
+                public void mouseExited(java.awt.event.MouseEvent e) {
+                    btn.setBackground(new Color(240, 244, 248));
+                }
+            });
+            return btn;
+        }
+
+        /**
+         * 移动选中的项目
+         */
+        private void moveSelected(JList<String> sourceList, DefaultListModel<String> sourceModel,
+                                  DefaultListModel<String> targetModel) {
+            int[] selectedIndices = sourceList.getSelectedIndices();
+            if (selectedIndices.length == 0) {
+                return;
+            }
+
+            // 从后往前删除，避免索引变化
+            List<String> toMove = new ArrayList<>();
+            for (int i = selectedIndices.length - 1; i >= 0; i--) {
+                String item = sourceModel.remove(selectedIndices[i]);
+                toMove.add(0, item);
+            }
+
+            // 添加到目标列表
+            for (String item : toMove) {
+                targetModel.addElement(item);
+            }
+        }
+
+        /**
+         * 移动所有项目
+         */
+        private void moveAll(DefaultListModel<String> sourceModel, DefaultListModel<String> targetModel) {
+            while (sourceModel.size() > 0) {
+                String item = sourceModel.remove(0);
+                targetModel.addElement(item);
+            }
         }
 
         public List<String> getSelectedColumns() {

@@ -1369,4 +1369,100 @@ public class ExcelService {
             }
         }
     }
+
+    /**
+     * 导出 Excel 文件的指定列
+     * 从源文件中选择指定的列，导出到新文件
+     *
+     * @param inputFile 输入文件
+     * @param columnsToExport 要导出的列名列表
+     * @param outputFile 输出文件
+     * @return 是否成功
+     */
+    public boolean exportSelectedColumns(File inputFile, List<String> columnsToExport, File outputFile) {
+        Workbook inputWorkbook = null;
+        Workbook outputWorkbook = null;
+
+        try {
+            // 读取工作簿
+            inputWorkbook = readWorkbook(inputFile);
+            if (inputWorkbook == null) {
+                System.err.println("无法读取 Excel 文件");
+                return false;
+            }
+
+            outputWorkbook = inputWorkbook.getClass().newInstance();
+            Sheet inputSheet = inputWorkbook.getSheetAt(0);
+            Sheet outputSheet = outputWorkbook.createSheet();
+
+            // 读取表头
+            Row header = inputSheet.getRow(0);
+            if (header == null) {
+                System.err.println("Excel 文件没有表头");
+                return false;
+            }
+
+            // 获取列名映射
+            Map<String, Integer> columnMap = getColumnMapping(header);
+
+            // 验证要导出的列是否存在
+            for (String col : columnsToExport) {
+                if (!columnMap.containsKey(col)) {
+                    System.err.println("要导出的列 '" + col + "' 不存在");
+                    return false;
+                }
+            }
+
+            // 创建输出表头
+            Row outputHeader = outputSheet.createRow(0);
+            Map<String, Integer> outputColumnMap = new HashMap<>();
+            int colIndex = 0;
+            for (String colName : columnsToExport) {
+                Integer sourceColIndex = columnMap.get(colName);
+                if (sourceColIndex != null) {
+                    Cell sourceHeaderCell = header.getCell(sourceColIndex);
+                    Cell newHeaderCell = outputHeader.createCell(colIndex++);
+                    copyCellValue(sourceHeaderCell, newHeaderCell);
+                    outputColumnMap.put(colName, newHeaderCell.getColumnIndex());
+                }
+            }
+
+            // 复制数据行
+            for (int i = 1; i <= inputSheet.getLastRowNum(); i++) {
+                Row inputRow = inputSheet.getRow(i);
+                if (inputRow == null) continue;
+
+                Row outputRow = outputSheet.createRow(i);
+                int outColIdx = 0;
+                for (String colName : columnsToExport) {
+                    Integer sourceColIndex = columnMap.get(colName);
+                    if (sourceColIndex != null) {
+                        Cell sourceCell = inputRow.getCell(sourceColIndex);
+                        Cell newCell = outputRow.createCell(outColIdx++);
+                        copyCellValue(sourceCell, newCell);
+                    }
+                }
+            }
+
+            // 自动调整列宽
+            for (int i = 0; i < outputHeader.getLastCellNum(); i++) {
+                outputSheet.autoSizeColumn(i);
+            }
+
+            // 写入输出文件
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                outputWorkbook.write(fos);
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("导出 Excel 文件时出错: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        } finally {
+            closeQuietly(inputWorkbook);
+            closeQuietly(outputWorkbook);
+        }
+    }
 }

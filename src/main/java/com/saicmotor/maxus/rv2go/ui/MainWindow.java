@@ -194,8 +194,10 @@ public class MainWindow extends JFrame {
         // Excel 合并面板
         rightPanel.add(new ExcelMergePanel(), "excelMerge");
 
+        // 数据清洗面板
+        rightPanel.add(new DataCleanPanel(), "dataClean");
+
         // 其他功能面板占位符
-        rightPanel.add(new PlaceholderPanel("数据清洗功能"), "dataClean");
         rightPanel.add(new PlaceholderPanel("数据转换功能"), "dataConvert");
         rightPanel.add(new PlaceholderPanel("数据导出功能"), "dataExport");
 

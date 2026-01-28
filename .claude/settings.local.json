@@ -11,7 +11,9 @@
       "Bash(unzip:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(tree:*)"
     ]
   }
 }
