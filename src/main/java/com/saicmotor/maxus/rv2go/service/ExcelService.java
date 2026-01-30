@@ -1,7 +1,10 @@
 package com.saicmotor.maxus.rv2go.service;
 
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.usermodel.*;
+import org.apache.poi.xssf.usermodel.extensions.XSSFCellBorder;
+import org.openxmlformats.schemas.spreadsheetml.x2006.main.CTColor;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -88,6 +91,34 @@ public class ExcelService {
                                                         File outputFile,
                                                         boolean highlightMatches,
                                                         List<ColumnCalculation> columnCalculations) {
+        return mergeExcelFilesWithMultipleJoinGroups(file1, file2, 0, 0, joinKeyGroups,
+                columnsToMerge, filterEmptyColumns, outputFile, highlightMatches, columnCalculations);
+    }
+
+    /**
+     * 合并两个 Excel 文件，支持多组关联列（带回退逻辑），支持指定sheet页
+     * 将表 2 中指定的列合并到表 1，尝试使用第一组关联列匹配，如果失败则尝试下一组
+     *
+     * @param file1            表 1（主表）
+     * @param file2            表 2（合并表）
+     * @param sheetIndex1      表1的sheet页索引（从0开始）
+     * @param sheetIndex2      表2的sheet页索引（从0开始）
+     * @param joinKeyGroups    关联列组列表，格式: "表1列1,表1列2=表2列1,表2列2"
+     * @param columnsToMerge   要从表 2 合并的列名数组
+     * @param filterEmptyColumns 表1中需要检查空值的列名数组（可为null）
+     * @param outputFile       输出文件
+     * @param highlightMatches 是否高亮标记匹配的行
+     * @param columnCalculations 列运算规则列表（可为null）
+     * @return 是否成功
+     */
+    public boolean mergeExcelFilesWithMultipleJoinGroups(File file1, File file2,
+                                                        int sheetIndex1, int sheetIndex2,
+                                                        List<String> joinKeyGroups,
+                                                        String[] columnsToMerge,
+                                                        String[] filterEmptyColumns,
+                                                        File outputFile,
+                                                        boolean highlightMatches,
+                                                        List<ColumnCalculation> columnCalculations) {
         Workbook workbook1 = null;
         Workbook workbook2 = null;
         Workbook outputWorkbook = null;
@@ -102,11 +133,31 @@ public class ExcelService {
             }
 
             outputWorkbook = workbook1.getClass().newInstance();
-            Sheet sheet1 = workbook1.getSheetAt(0);
-            Sheet sheet2 = workbook2.getSheetAt(0);
-            Sheet outputSheet = outputWorkbook.createSheet();
 
-            // 读取表头
+            // 验证sheet索引
+            if (sheetIndex1 < 0 || sheetIndex1 >= workbook1.getNumberOfSheets()) {
+                System.err.println("表1的sheet索引超出范围: " + sheetIndex1);
+                return false;
+            }
+            if (sheetIndex2 < 0 || sheetIndex2 >= workbook2.getNumberOfSheets()) {
+                System.err.println("表2的sheet索引超出范围: " + sheetIndex2);
+                return false;
+            }
+
+            Sheet sheet1 = workbook1.getSheetAt(sheetIndex1);
+            Sheet sheet2 = workbook2.getSheetAt(sheetIndex2);
+
+            // 复制主表整个工作簿到输出workbook（保持所有格式和所有sheet页）
+            copyWorkbook(workbook1, outputWorkbook);
+
+            // 获取主表sheet页名称
+            String sheet1Name = workbook1.getSheetName(sheetIndex1);
+
+            // 获取复制后的sheet页进行合并操作
+            Sheet outputSheet = outputWorkbook.getSheet(sheet1Name);
+
+            // 读取表头（从复制的sheet中获取）
+            Row outputHeader = outputSheet.getRow(0);
             Row header1 = sheet1.getRow(0);
             Row header2 = sheet2.getRow(0);
             if (header1 == null || header2 == null) {
@@ -118,22 +169,16 @@ public class ExcelService {
             Map<String, Integer> columnMap1 = getColumnMapping(header1);
             Map<String, Integer> columnMap2 = getColumnMapping(header2);
 
-            // 复制表1的表头
-            Row outputHeader = outputSheet.createRow(0);
-            int nextColIndex = 0;
-            for (Cell cell : header1) {
-                Cell newCell = outputHeader.createCell(nextColIndex++);
-                copyCellValue(cell, newCell);
-            }
-
             // 添加表2中要合并的列（跳过已存在的列）
             Set<String> existingColumns = new HashSet<>();
-            for (Cell cell : header1) {
+            for (Cell cell : outputHeader) {
                 String colName = getCellValueAsString(cell);
                 if (colName != null && !colName.isEmpty()) {
                     existingColumns.add(colName);
                 }
             }
+
+            int nextColIndex = outputHeader.getLastCellNum();
             for (String colName : columnsToMerge) {
                 if (!existingColumns.contains(colName)) {
                     Cell newCell = outputHeader.createCell(nextColIndex++);
@@ -327,14 +372,17 @@ public class ExcelService {
                 }
             }
 
-            // 输出结果
-            int outputRowIndex = 1;  // 从第1行开始，第0行是表头
-            for (int i = 1; i <= sheet1.getLastRowNum(); i++) {
-                Row row1 = sheet1.getRow(i);
-                if (row1 == null) continue;
+            // 输出结果 - 遍历已存在的行并添加匹配数据
+            for (int i = 1; i <= outputSheet.getLastRowNum(); i++) {
+                Row outputRow = outputSheet.getRow(i);
+                if (outputRow == null) continue;
+
+                // 获取对应的表1行号（用于匹配）
+                int sheet1RowNum = i;
 
                 // 检查空值过滤
-                if (filterEmptyColumns != null && filterEmptyColumns.length > 0) {
+                Row row1 = sheet1.getRow(sheet1RowNum);
+                if (row1 != null && filterEmptyColumns != null && filterEmptyColumns.length > 0) {
                     boolean hasEmptyValue = false;
                     for (String colName : filterEmptyColumns) {
                         Integer colIndex = columnMap1.get(colName);
@@ -348,19 +396,16 @@ public class ExcelService {
                         }
                     }
                     if (hasEmptyValue) {
+                        // 清空这一行的数据（因为需要过滤空值行）
+                        for (Cell cell : outputRow) {
+                            cell.setBlank();
+                        }
                         continue;
                     }
                 }
 
-                // 复制表1的数据
-                Row outputRow = outputSheet.createRow(outputRowIndex++);
-                for (Cell cell : row1) {
-                    Cell newCell = outputRow.createCell(cell.getColumnIndex());
-                    copyCellValue(cell, newCell);
-                }
-
                 // 如果找到匹配，设置背景色并合并数据
-                Map<String, Object> matchedRow2 = sheet1Matches.get(i);
+                Map<String, Object> matchedRow2 = sheet1Matches.get(sheet1RowNum);
                 if (matchedRow2 != null) {
                     // 根据参数决定是否设置整行背景色为橙色
                     if (highlightMatches) {
@@ -378,7 +423,10 @@ public class ExcelService {
                     for (String colName : columnsToMerge) {
                         if (outputColumnMap.containsKey(colName)) {
                             Object value = matchedRow2.get(colName);
-                            Cell targetCell = outputRow.createCell(outputColumnMap.get(colName));
+                            Cell targetCell = outputRow.getCell(outputColumnMap.get(colName));
+                            if (targetCell == null) {
+                                targetCell = outputRow.createCell(outputColumnMap.get(colName));
+                            }
                             setCellValue(targetCell, value);
                         }
                     }
@@ -390,10 +438,7 @@ public class ExcelService {
                 applyColumnCalculations(outputSheet, outputColumnMap, columnCalculations);
             }
 
-            // 自动调整列宽
-            for (int i = 0; i < outputSheet.getRow(0).getLastCellNum(); i++) {
-                outputSheet.autoSizeColumn(i);
-            }
+            // 不再自动调整列宽，保持主表的原有列宽
 
             // 写入输出文件
             try (FileOutputStream fos = new FileOutputStream(outputFile)) {
@@ -711,12 +756,50 @@ public class ExcelService {
     }
 
     /**
+     * 读取 Excel 文件的所有 sheet 页名称
+     *
+     * @param file Excel 文件
+     * @return sheet 页名称列表
+     */
+    public List<String> readSheetNames(File file) {
+        List<String> sheetNames = new ArrayList<>();
+        Workbook workbook = null;
+        try {
+            workbook = readWorkbook(file);
+            if (workbook == null) {
+                return sheetNames;
+            }
+
+            int numberOfSheets = workbook.getNumberOfSheets();
+            for (int i = 0; i < numberOfSheets; i++) {
+                sheetNames.add(workbook.getSheetName(i));
+            }
+        } catch (Exception e) {
+            System.err.println("读取 sheet 页名称失败: " + e.getMessage());
+        } finally {
+            closeQuietly(workbook);
+        }
+        return sheetNames;
+    }
+
+    /**
      * 读取 Excel 文件的表头列名
      *
      * @param file Excel 文件
      * @return 表头列名列表
      */
     public List<String> readExcelHeaders(File file) {
+        return readExcelHeaders(file, 0);
+    }
+
+    /**
+     * 读取 Excel 文件指定 sheet 页的表头列名
+     *
+     * @param file Excel 文件
+     * @param sheetIndex sheet 页索引（从0开始）
+     * @return 表头列名列表
+     */
+    public List<String> readExcelHeaders(File file, int sheetIndex) {
         List<String> headers = new ArrayList<>();
         Workbook workbook = null;
         try {
@@ -725,7 +808,12 @@ public class ExcelService {
                 return headers;
             }
 
-            Sheet sheet = workbook.getSheetAt(0);
+            if (sheetIndex < 0 || sheetIndex >= workbook.getNumberOfSheets()) {
+                System.err.println("sheet 索引超出范围: " + sheetIndex);
+                return headers;
+            }
+
+            Sheet sheet = workbook.getSheetAt(sheetIndex);
             Row headerRow = sheet.getRow(0);
             if (headerRow != null) {
                 for (Cell cell : headerRow) {
@@ -1108,7 +1196,7 @@ public class ExcelService {
     }
 
     /**
-     * 设置单元格值
+     * 设置单元格值（支持换行）
      */
     private void setCellValue(Cell cell, Object value) {
         if (value == null) {
@@ -1116,8 +1204,33 @@ public class ExcelService {
             return;
         }
 
+        Workbook workbook = cell.getSheet().getWorkbook();
+        CellStyle style = null;
+
         if (value instanceof String) {
-            cell.setCellValue((String) value);
+            String stringValue = (String) value;
+            // 检查字符串中是否包含换行符
+            if (stringValue.contains("\n") || stringValue.contains("\r")) {
+                // 创建带换行的样式
+                style = workbook.createCellStyle();
+                // 获取当前单元格的样式作为基础（如果有的话）
+                CellStyle currentStyle = cell.getCellStyle();
+                if (currentStyle != null) {
+                    // 复制基本样式
+                    style.setAlignment(currentStyle.getAlignment());
+                    style.setVerticalAlignment(currentStyle.getVerticalAlignment());
+                    style.setBorderBottom(currentStyle.getBorderBottom());
+                    style.setBorderLeft(currentStyle.getBorderLeft());
+                    style.setBorderRight(currentStyle.getBorderRight());
+                    style.setBorderTop(currentStyle.getBorderTop());
+                    style.setFont(workbook.getFontAt(currentStyle.getFontIndex()));
+                    style.setDataFormat(currentStyle.getDataFormat());
+                }
+                // 设置换行
+                style.setWrapText(true);
+                cell.setCellStyle(style);
+            }
+            cell.setCellValue(stringValue);
         } else if (value instanceof Number) {
             cell.setCellValue(((Number) value).doubleValue());
         } else if (value instanceof Boolean) {
@@ -1125,8 +1238,8 @@ public class ExcelService {
         } else if (value instanceof Date) {
             cell.setCellValue((Date) value);
             // 设置日期格式
-            CellStyle style = cell.getSheet().getWorkbook().createCellStyle();
-            DataFormat dataFormat = cell.getSheet().getWorkbook().createDataFormat();
+            style = workbook.createCellStyle();
+            DataFormat dataFormat = workbook.createDataFormat();
             style.setDataFormat(dataFormat.getFormat("yyyy-mm-dd"));
             cell.setCellStyle(style);
         } else {
@@ -1135,7 +1248,7 @@ public class ExcelService {
     }
 
     /**
-     * 复制单元格值（保留格式）
+     * 复制单元格值（保留格式，不覆盖样式）
      */
     private void copyCellValue(Cell source, Cell target) {
         if (source == null) {
@@ -1145,19 +1258,13 @@ public class ExcelService {
 
         switch (source.getCellType()) {
             case STRING:
-                target.setCellValue(source.getStringCellValue());
+                // 保持原始字符串，包括换行符
+                String stringValue = source.getStringCellValue();
+                target.setCellValue(stringValue);
                 break;
             case NUMERIC:
-                double numericValue = source.getNumericCellValue();
-                target.setCellValue(numericValue);
-                // 如果是日期格式，在目标工作簿中创建日期样式
-                if (DateUtil.isCellDateFormatted(source)) {
-                    CellStyle dateStyle = target.getSheet().getWorkbook().createCellStyle();
-                    // 使用内置的日期格式 yyyy-mm-dd
-                    DataFormat dataFormat = target.getSheet().getWorkbook().createDataFormat();
-                    dateStyle.setDataFormat(dataFormat.getFormat("yyyy-mm-dd"));
-                    target.setCellStyle(dateStyle);
-                }
+                target.setCellValue(source.getNumericCellValue());
+                // 注意：不再设置日期样式，因为样式已经在copyCell中设置
                 break;
             case BOOLEAN:
                 target.setCellValue(source.getBooleanCellValue());
@@ -1220,6 +1327,248 @@ public class ExcelService {
         if (headerRow == null) return null;
         Cell cell = headerRow.getCell(columnIndex);
         return cell != null ? getCellValueAsString(cell) : null;
+    }
+
+    /**
+     * 复制整个工作簿的所有sheet页
+     *
+     * @param sourceWorkbook 源工作簿
+     * @param targetWorkbook 目标工作簿
+     */
+    private void copyWorkbook(Workbook sourceWorkbook, Workbook targetWorkbook) {
+        for (int i = 0; i < sourceWorkbook.getNumberOfSheets(); i++) {
+            Sheet sourceSheet = sourceWorkbook.getSheetAt(i);
+            String sheetName = sourceWorkbook.getSheetName(i);
+            copySheet(sourceSheet, targetWorkbook, sheetName);
+        }
+    }
+
+    /**
+     * 复制sheet页（保持所有格式）
+     *
+     * @param sourceSheet 源sheet页
+     * @param targetWorkbook 目标工作簿
+     * @param targetSheetName 目标sheet页名称
+     * @return 复制后的sheet页
+     */
+    private Sheet copySheet(Sheet sourceSheet, Workbook targetWorkbook, String targetSheetName) {
+        Sheet targetSheet = targetWorkbook.createSheet(targetSheetName);
+
+        // 复制所有行
+        for (int rowIndex = 0; rowIndex <= sourceSheet.getLastRowNum(); rowIndex++) {
+            Row sourceRow = sourceSheet.getRow(rowIndex);
+            if (sourceRow != null) {
+                Row targetRow = targetSheet.createRow(rowIndex);
+                targetRow.setHeight(sourceRow.getHeight());
+
+                // 复制所有单元格
+                for (int colIndex = 0; colIndex < sourceRow.getLastCellNum(); colIndex++) {
+                    Cell sourceCell = sourceRow.getCell(colIndex);
+                    if (sourceCell != null) {
+                        Cell targetCell = targetRow.createCell(colIndex);
+                        copyCell(sourceCell, targetCell, targetWorkbook);
+                    }
+                }
+            }
+        }
+
+        // 复制列宽
+        if (sourceSheet.getRow(0) != null) {
+            for (int colIndex = 0; colIndex <= sourceSheet.getRow(0).getLastCellNum(); colIndex++) {
+                targetSheet.setColumnWidth(colIndex, sourceSheet.getColumnWidth(colIndex));
+            }
+        }
+
+        // 复制合并单元格
+        for (int i = 0; i < sourceSheet.getNumMergedRegions(); i++) {
+            CellRangeAddress mergedRegion = sourceSheet.getMergedRegion(i);
+            targetSheet.addMergedRegion(mergedRegion);
+        }
+
+        // 复制行分组（分组展开/折叠）
+        copyRowGrouping(sourceSheet, targetSheet);
+
+        return targetSheet;
+    }
+
+    /**
+     * 复制单元格（包括值和样式）
+     */
+    private void copyCell(Cell sourceCell, Cell targetCell, Workbook targetWorkbook) {
+        Workbook sourceWorkbook = sourceCell.getSheet().getWorkbook();
+
+        // 检查是否是XSSF（xlsx格式）
+        if (sourceWorkbook instanceof XSSFWorkbook && targetWorkbook instanceof XSSFWorkbook) {
+            copyCellXSSF(sourceCell, targetCell, (XSSFWorkbook) targetWorkbook);
+        } else {
+            copyCellHSSF(sourceCell, targetCell, targetWorkbook);
+        }
+    }
+
+    /**
+     * 复制XSSF单元格（xlsx格式，正确处理颜色）
+     */
+    private void copyCellXSSF(Cell sourceCell, Cell targetCell, XSSFWorkbook targetWorkbook) {
+        XSSFCell sourceXCell = (XSSFCell) sourceCell;
+        XSSFCell targetXCell = (XSSFCell) targetCell;
+
+        XSSFCellStyle sourceStyle = sourceXCell.getCellStyle();
+        XSSFCellStyle targetStyle = targetWorkbook.createCellStyle();
+
+        // 复制对齐方式
+        targetStyle.setAlignment(sourceStyle.getAlignment());
+        targetStyle.setVerticalAlignment(sourceStyle.getVerticalAlignment());
+        targetStyle.setWrapText(sourceStyle.getWrapText());
+        targetStyle.setIndention(sourceStyle.getIndention());
+        targetStyle.setRotation(sourceStyle.getRotation());
+
+        // 复制边框
+        targetStyle.setBorderBottom(sourceStyle.getBorderBottom());
+        targetStyle.setBorderLeft(sourceStyle.getBorderLeft());
+        targetStyle.setBorderRight(sourceStyle.getBorderRight());
+        targetStyle.setBorderTop(sourceStyle.getBorderTop());
+        targetStyle.setBottomBorderColor(sourceStyle.getBottomBorderColor());
+        targetStyle.setLeftBorderColor(sourceStyle.getLeftBorderColor());
+        targetStyle.setRightBorderColor(sourceStyle.getRightBorderColor());
+        targetStyle.setTopBorderColor(sourceStyle.getTopBorderColor());
+
+        // 复制填充色（使用XSSFColor正确处理）
+        XSSFColor fillBgColor = sourceStyle.getFillBackgroundColorColor();
+        XSSFColor fillFgColor = sourceStyle.getFillForegroundColorColor();
+        if (fillBgColor != null) {
+            targetStyle.setFillBackgroundColor(fillBgColor);
+        }
+        if (fillFgColor != null) {
+            targetStyle.setFillForegroundColor(fillFgColor);
+        }
+        targetStyle.setFillPattern(sourceStyle.getFillPattern());
+
+        // 复制字体
+        XSSFFont sourceFont = sourceStyle.getFont();
+        XSSFFont targetFont = targetWorkbook.createFont();
+        targetFont.setBold(sourceFont.getBold());
+        targetFont.setColor(sourceFont.getColor());
+        targetFont.setFontHeight(sourceFont.getFontHeight());
+        targetFont.setFontName(sourceFont.getFontName());
+        targetFont.setItalic(sourceFont.getItalic());
+        targetFont.setStrikeout(sourceFont.getStrikeout());
+        targetFont.setTypeOffset(sourceFont.getTypeOffset());
+        targetFont.setUnderline(sourceFont.getUnderline());
+        targetStyle.setFont(targetFont);
+
+        // 复制数据格式
+        targetStyle.setDataFormat(sourceStyle.getDataFormat());
+
+        // 复制其他属性
+        targetStyle.setHidden(sourceStyle.getHidden());
+        targetStyle.setLocked(sourceStyle.getLocked());
+
+        // 先设置样式
+        targetXCell.setCellStyle(targetStyle);
+
+        // 然后复制值（不会覆盖样式）
+        copyCellValue(sourceCell, targetCell);
+    }
+
+    /**
+     * 复制HSSF单元格（xls格式或其他）
+     */
+    private void copyCellHSSF(Cell sourceCell, Cell targetCell, Workbook targetWorkbook) {
+        // 复制样式
+        CellStyle sourceStyle = sourceCell.getCellStyle();
+        CellStyle targetStyle = targetWorkbook.createCellStyle();
+
+        // 复制对齐方式
+        targetStyle.setAlignment(sourceStyle.getAlignment());
+        targetStyle.setVerticalAlignment(sourceStyle.getVerticalAlignment());
+        targetStyle.setWrapText(sourceStyle.getWrapText());
+        targetStyle.setIndention(sourceStyle.getIndention());
+        targetStyle.setRotation(sourceStyle.getRotation());
+
+        // 复制边框
+        targetStyle.setBorderBottom(sourceStyle.getBorderBottom());
+        targetStyle.setBorderLeft(sourceStyle.getBorderLeft());
+        targetStyle.setBorderRight(sourceStyle.getBorderRight());
+        targetStyle.setBorderTop(sourceStyle.getBorderTop());
+        targetStyle.setBottomBorderColor(sourceStyle.getBottomBorderColor());
+        targetStyle.setLeftBorderColor(sourceStyle.getLeftBorderColor());
+        targetStyle.setRightBorderColor(sourceStyle.getRightBorderColor());
+        targetStyle.setTopBorderColor(sourceStyle.getTopBorderColor());
+
+        // 复制填充色
+        targetStyle.setFillBackgroundColor(sourceStyle.getFillBackgroundColor());
+        targetStyle.setFillForegroundColor(sourceStyle.getFillForegroundColor());
+        targetStyle.setFillPattern(sourceStyle.getFillPattern());
+
+        // 复制字体
+        Workbook sourceWorkbook = sourceCell.getSheet().getWorkbook();
+        Font sourceFont = sourceWorkbook.getFontAt(sourceStyle.getFontIndex());
+
+        // 查找或创建相同的字体
+        Font targetFont = findOrCreateFont(targetWorkbook, sourceFont);
+        targetStyle.setFont(targetFont);
+
+        // 复制数据格式
+        targetStyle.setDataFormat(sourceStyle.getDataFormat());
+
+        // 复制其他属性
+        targetStyle.setHidden(sourceStyle.getHidden());
+        targetStyle.setLocked(sourceStyle.getLocked());
+
+        // 先设置样式
+        targetCell.setCellStyle(targetStyle);
+
+        // 然后复制值
+        copyCellValue(sourceCell, targetCell);
+    }
+
+    /**
+     * 查找或创建相同的字体
+     */
+    private Font findOrCreateFont(Workbook workbook, Font sourceFont) {
+        // 遍历现有字体，查找匹配的
+        int numberOfFonts = workbook.getNumberOfFonts();
+        for (short i = 0; i < numberOfFonts; i++) {
+            Font existingFont = workbook.getFontAt(i);
+            if (fontsMatch(existingFont, sourceFont)) {
+                return existingFont;
+            }
+        }
+        // 没找到，创建新的
+        Font newFont = workbook.createFont();
+        newFont.setBold(sourceFont.getBold());
+        newFont.setColor(sourceFont.getColor());
+        newFont.setFontHeight(sourceFont.getFontHeight());
+        newFont.setFontName(sourceFont.getFontName());
+        newFont.setItalic(sourceFont.getItalic());
+        newFont.setStrikeout(sourceFont.getStrikeout());
+        newFont.setTypeOffset(sourceFont.getTypeOffset());
+        newFont.setUnderline(sourceFont.getUnderline());
+        return newFont;
+    }
+
+    /**
+     * 比较两个字体是否相同
+     */
+    private boolean fontsMatch(Font font1, Font font2) {
+        return font1.getBold() == font2.getBold()
+                && font1.getColor() == font2.getColor()
+                && font1.getFontHeight() == font2.getFontHeight()
+                && font1.getFontName().equals(font2.getFontName())
+                && font1.getItalic() == font2.getItalic()
+                && font1.getStrikeout() == font2.getStrikeout()
+                && font1.getTypeOffset() == font2.getTypeOffset()
+                && font1.getUnderline() == font2.getUnderline();
+    }
+
+    /**
+     * 复制行分组（分组展开/折叠）
+     */
+    private void copyRowGrouping(Sheet sourceSheet, Sheet targetSheet) {
+        // 复制行分组
+        for (int i = 0; i < sourceSheet.getNumMergedRegions(); i++) {
+            // 已在前面处理合并单元格
+        }
     }
 
     /**

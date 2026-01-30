@@ -21,6 +21,8 @@ import static java.awt.Desktop.getDesktop;
 public class ExcelMergePanel extends JPanel {
     private JTextField file1Field;
     private JTextField file2Field;
+    private JComboBox<String> sheet1Combo;  // 表1 sheet页选择下拉框
+    private JComboBox<String> sheet2Combo;  // 表2 sheet页选择下拉框
     private JButton btnSelectColumns1;  // 表1列选择按钮
     private JButton btnSelectColumns2;  // 表2列选择按钮
     private JTextField joinKeysField;
@@ -42,6 +44,10 @@ public class ExcelMergePanel extends JPanel {
 
     private File selectedFile1;
     private File selectedFile2;
+
+    // 存储选中的sheet页索引
+    private int selectedSheetIndex1 = 0;  // 表1选中的sheet索引，默认0
+    private int selectedSheetIndex2 = 0;  // 表2选中的sheet索引，默认0
 
     // 存储各表的列名
     private List<String> columns1;
@@ -212,12 +218,27 @@ public class ExcelMergePanel extends JPanel {
         btnBrowse1.addActionListener(e -> selectFile(1));
         panel.add(btnBrowse1, gbc);
 
-        gbc.gridx = 3;
+        // 表 1 sheet 页选择（新行）
+        gbc.gridx = 1;
+        gbc.gridy = 2;
+        gbc.weightx = 1.0;
+        sheet1Combo = new JComboBox<>();
+        sheet1Combo.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        sheet1Combo.setPreferredSize(new Dimension(0, 32));
+        sheet1Combo.setBackground(new Color(250, 252, 255));
+        sheet1Combo.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(220, 225, 230), 1),
+            BorderFactory.createEmptyBorder(6, 10, 6, 10)
+        ));
+        sheet1Combo.addActionListener(e -> onSheet1Changed());
+        panel.add(sheet1Combo, gbc);
+
+        gbc.gridx = 0;
         gbc.weightx = 0;
-        btnSelectColumns1 = createActionButton("选择列");
-        btnSelectColumns1.setEnabled(false);
-        btnSelectColumns1.addActionListener(e -> selectColumns(1));
-        panel.add(btnSelectColumns1, gbc);
+        JLabel sheet1Label = new JLabel("Sheet页:");
+        sheet1Label.setFont(labelFont);
+        sheet1Label.setForeground(labelColor);
+        panel.add(sheet1Label, gbc);
 
         // 表 2 文件选择
         gbc.gridx = 0;
@@ -247,12 +268,27 @@ public class ExcelMergePanel extends JPanel {
         btnBrowse2.addActionListener(e -> selectFile(2));
         panel.add(btnBrowse2, gbc);
 
-        gbc.gridx = 3;
+        // 表 2 sheet 页选择（新行）
+        gbc.gridx = 0;
+        gbc.gridy = 3;
         gbc.weightx = 0;
-        btnSelectColumns2 = createActionButton("选择列");
-        btnSelectColumns2.setEnabled(false);
-        btnSelectColumns2.addActionListener(e -> selectColumns(2));
-        panel.add(btnSelectColumns2, gbc);
+        JLabel sheet2Label = new JLabel("Sheet页:");
+        sheet2Label.setFont(labelFont);
+        sheet2Label.setForeground(labelColor);
+        panel.add(sheet2Label, gbc);
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        sheet2Combo = new JComboBox<>();
+        sheet2Combo.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        sheet2Combo.setPreferredSize(new Dimension(0, 32));
+        sheet2Combo.setBackground(new Color(250, 252, 255));
+        sheet2Combo.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(220, 225, 230), 1),
+            BorderFactory.createEmptyBorder(6, 10, 6, 10)
+        ));
+        sheet2Combo.addActionListener(e -> onSheet2Changed());
+        panel.add(sheet2Combo, gbc);
 
         return panel;
     }
@@ -503,39 +539,56 @@ public class ExcelMergePanel extends JPanel {
                 prefs.put("lastDirectory", currentDir.getAbsolutePath());
             }
 
-            // 在后台线程读取表头
+            // 在后台线程读取sheet页列表和表头
             final File file = selectedFile;
-            new SwingWorker<List<String>, Void>() {
+            new SwingWorker<Object[], Void>() {
                 @Override
-                protected List<String> doInBackground() {
-                    return excelService.readExcelHeaders(file);
+                protected Object[] doInBackground() {
+                    List<String> sheetNames = excelService.readSheetNames(file);
+                    List<String> headers = excelService.readExcelHeaders(file, 0);  // 默认读取第一个sheet
+                    return new Object[]{sheetNames, headers};
                 }
 
                 @Override
                 protected void done() {
                     try {
-                        List<String> headers = get();
+                        Object[] result = get();
+                        List<String> sheetNames = (List<String>) result[0];
+                        List<String> headers = (List<String>) result[1];
+
                         if (fileNumber == 1) {
-                        selectedFile1 = file;
-                        file1Field.setText(file.getAbsolutePath());
-                        columns1 = headers != null ? headers : new ArrayList<>();
-                        // 启用"选择列"按钮
-                        if (btnSelectColumns1 != null) {
-                            btnSelectColumns1.setEnabled(true);
+                            selectedFile1 = file;
+                            file1Field.setText(file.getAbsolutePath());
+
+                            // 更新sheet页下拉框
+                            sheet1Combo.removeAllItems();
+                            if (sheetNames != null && !sheetNames.isEmpty()) {
+                                for (int i = 0; i < sheetNames.size(); i++) {
+                                    sheet1Combo.addItem((i + 1) + ". " + sheetNames.get(i));
+                                }
+                                selectedSheetIndex1 = 0;
+                            }
+
+                            columns1 = headers != null ? headers : new ArrayList<>();
+                            // 更新关联列下拉框
+                            updateComboBoxOptions();
+                        } else if (fileNumber == 2) {
+                            selectedFile2 = file;
+                            file2Field.setText(file.getAbsolutePath());
+
+                            // 更新sheet页下拉框
+                            sheet2Combo.removeAllItems();
+                            if (sheetNames != null && !sheetNames.isEmpty()) {
+                                for (int i = 0; i < sheetNames.size(); i++) {
+                                    sheet2Combo.addItem((i + 1) + ". " + sheetNames.get(i));
+                                }
+                                selectedSheetIndex2 = 0;
+                            }
+
+                            columns2 = headers != null ? headers : new ArrayList<>();
+                            // 更新关联列下拉框
+                            updateComboBoxOptions();
                         }
-                        // 更新关联列下拉框
-                        updateComboBoxOptions();
-                    } else if (fileNumber == 2) {
-                        selectedFile2 = file;
-                        file2Field.setText(file.getAbsolutePath());
-                        columns2 = headers != null ? headers : new ArrayList<>();
-                        // 启用"选择列"按钮
-                        if (btnSelectColumns2 != null) {
-                            btnSelectColumns2.setEnabled(true);
-                        }
-                        // 更新关联列下拉框
-                        updateComboBoxOptions();
-                    }
                     } catch (Exception ex) {
                         ex.printStackTrace();
                     }
@@ -612,6 +665,8 @@ public class ExcelMergePanel extends JPanel {
                 boolean success = excelService.mergeExcelFilesWithMultipleJoinGroups(
                         file1,
                         file2,
+                        selectedSheetIndex1,
+                        selectedSheetIndex2,
                         joinKeyGroupsList,
                         columnsArray,
                         null,
@@ -1224,6 +1279,87 @@ public class ExcelMergePanel extends JPanel {
             JOptionPane.showMessageDialog(this,
                     "打开文件夹失败: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * 表1 sheet页选择变化处理
+     */
+    private void onSheet1Changed() {
+        if (sheet1Combo.getItemCount() == 0 || selectedFile1 == null) {
+            return;
+        }
+
+        int selectedIndex = sheet1Combo.getSelectedIndex();
+        if (selectedIndex < 0) {
+            return;
+        }
+
+        selectedSheetIndex1 = selectedIndex;
+
+        // 在后台线程重新读取列名
+        final File file = selectedFile1;
+        final int sheetIndex = selectedIndex;
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                return excelService.readExcelHeaders(file, sheetIndex);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> headers = get();
+                    columns1 = headers != null ? headers : new ArrayList<>();
+                    // 更新关联列下拉框
+                    updateComboBoxOptions();
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            }
+        }.execute();
+    }
+
+    /**
+     * 表2 sheet页选择变化处理
+     */
+    private void onSheet2Changed() {
+        if (sheet2Combo.getItemCount() == 0 || selectedFile2 == null) {
+            return;
+        }
+
+        int selectedIndex = sheet2Combo.getSelectedIndex();
+        if (selectedIndex < 0) {
+            return;
+        }
+
+        selectedSheetIndex2 = selectedIndex;
+
+        // 在后台线程重新读取列名
+        final File file = selectedFile2;
+        final int sheetIndex = selectedIndex;
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                return excelService.readExcelHeaders(file, sheetIndex);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> headers = get();
+                    columns2 = headers != null ? headers : new ArrayList<>();
+                    // 清空合并列列表和关联列组（因为列名可能变化了）
+                    columnsToMergeList.clear();
+                    updateMergeColumnsList();
+                    joinKeyGroups.clear();
+                    updateJoinKeyGroupsList();
+                    // 更新关联列下拉框
+                    updateComboBoxOptions();
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            }
+        }.execute();
     }
 
     /**
