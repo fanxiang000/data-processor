@@ -91,18 +91,20 @@ public class ExcelService {
                                                         File outputFile,
                                                         boolean highlightMatches,
                                                         List<ColumnCalculation> columnCalculations) {
-        return mergeExcelFilesWithMultipleJoinGroups(file1, file2, 0, 0, joinKeyGroups,
+        return mergeExcelFilesWithMultipleJoinGroups(file1, file2, 0, 0, 0, 0, joinKeyGroups,
                 columnsToMerge, filterEmptyColumns, outputFile, highlightMatches, columnCalculations);
     }
 
     /**
-     * 合并两个 Excel 文件，支持多组关联列（带回退逻辑），支持指定sheet页
+     * 合并两个 Excel 文件，支持多组关联列（带回退逻辑），支持指定sheet页和表头行
      * 将表 2 中指定的列合并到表 1，尝试使用第一组关联列匹配，如果失败则尝试下一组
      *
      * @param file1            表 1（主表）
      * @param file2            表 2（合并表）
      * @param sheetIndex1      表1的sheet页索引（从0开始）
      * @param sheetIndex2      表2的sheet页索引（从0开始）
+     * @param headerRow1       表1的表头行索引（从0开始）
+     * @param headerRow2       表2的表头行索引（从0开始）
      * @param joinKeyGroups    关联列组列表，格式: "表1列1,表1列2=表2列1,表2列2"
      * @param columnsToMerge   要从表 2 合并的列名数组
      * @param filterEmptyColumns 表1中需要检查空值的列名数组（可为null）
@@ -113,6 +115,7 @@ public class ExcelService {
      */
     public boolean mergeExcelFilesWithMultipleJoinGroups(File file1, File file2,
                                                         int sheetIndex1, int sheetIndex2,
+                                                        int headerRow1, int headerRow2,
                                                         List<String> joinKeyGroups,
                                                         String[] columnsToMerge,
                                                         String[] filterEmptyColumns,
@@ -156,12 +159,12 @@ public class ExcelService {
             // 获取复制后的sheet页进行合并操作
             Sheet outputSheet = outputWorkbook.getSheet(sheet1Name);
 
-            // 读取表头（从复制的sheet中获取）
-            Row outputHeader = outputSheet.getRow(0);
-            Row header1 = sheet1.getRow(0);
-            Row header2 = sheet2.getRow(0);
+            // 读取表头（从复制的sheet中获取，使用指定的表头行）
+            Row outputHeader = outputSheet.getRow(headerRow1);
+            Row header1 = sheet1.getRow(headerRow1);
+            Row header2 = sheet2.getRow(headerRow2);
             if (header1 == null || header2 == null) {
-                System.err.println("Excel 文件没有表头");
+                System.err.println("Excel 文件没有表头（请检查表头行设置）");
                 return false;
             }
 
@@ -226,7 +229,10 @@ public class ExcelService {
                 Map<String, Integer> keyToRow = new HashMap<>();
                 Map<Integer, Map<String, Object>> rowData = new HashMap<>();
 
-                for (int i = 1; i <= sheet2.getLastRowNum(); i++) {
+                // 数据行从表头行的下一行开始
+                int dataStartRow2 = headerRow2 + 1;
+
+                for (int i = dataStartRow2; i <= sheet2.getLastRowNum(); i++) {
                     Row row = sheet2.getRow(i);
                     if (row == null) continue;
 
@@ -272,7 +278,10 @@ public class ExcelService {
                 JoinKeyGroup group = parsedGroups.get(0);
                 Map<String, Integer> keyToRow = sheet2KeyToRowMap.get(0);
 
-                for (int i = 1; i <= sheet1.getLastRowNum(); i++) {
+                // 数据行从表头行的下一行开始
+                int dataStartRow1 = headerRow1 + 1;
+
+                for (int i = dataStartRow1; i <= sheet1.getLastRowNum(); i++) {
                     Row row1 = sheet1.getRow(i);
                     if (row1 == null) continue;
 
@@ -322,7 +331,10 @@ public class ExcelService {
                 JoinKeyGroup group = parsedGroups.get(1);
                 Map<String, Integer> keyToRow = sheet2KeyToRowMap.get(1);
 
-                for (int i = 1; i <= sheet1.getLastRowNum(); i++) {
+                // 数据行从表头行的下一行开始
+                int dataStartRow1 = headerRow1 + 1;
+
+                for (int i = dataStartRow1; i <= sheet1.getLastRowNum(); i++) {
                     // 跳过已匹配的表1行
                     if (matchedSheet1Rows.contains(i)) {
                         continue;
@@ -373,7 +385,10 @@ public class ExcelService {
             }
 
             // 输出结果 - 遍历已存在的行并添加匹配数据
-            for (int i = 1; i <= outputSheet.getLastRowNum(); i++) {
+            // 数据行从表头行的下一行开始
+            int dataStartRow1 = headerRow1 + 1;
+
+            for (int i = dataStartRow1; i <= outputSheet.getLastRowNum(); i++) {
                 Row outputRow = outputSheet.getRow(i);
                 if (outputRow == null) continue;
 
@@ -435,7 +450,7 @@ public class ExcelService {
 
             // 应用列运算
             if (columnCalculations != null && !columnCalculations.isEmpty()) {
-                applyColumnCalculations(outputSheet, outputColumnMap, columnCalculations);
+                applyColumnCalculations(outputSheet, outputColumnMap, columnCalculations, headerRow1);
             }
 
             // 不再自动调整列宽，保持主表的原有列宽
@@ -1598,13 +1613,13 @@ public class ExcelService {
      * 应用列运算
      */
     private void applyColumnCalculations(Sheet outputSheet, Map<String, Integer> outputColumnMap,
-                                        List<ColumnCalculation> columnCalculations) {
-        Row headerRow = outputSheet.getRow(0);
-        if (headerRow == null) return;
+                                        List<ColumnCalculation> columnCalculations, int headerRow) {
+        Row headerRowObj = outputSheet.getRow(headerRow);
+        if (headerRowObj == null) return;
 
         // 确保目标列存在，如果不存在则添加到表头
         Set<String> existingColumns = new HashSet<>();
-        for (Cell cell : headerRow) {
+        for (Cell cell : headerRowObj) {
             String colName = getCellValueAsString(cell);
             if (colName != null && !colName.isEmpty()) {
                 existingColumns.add(colName);
@@ -1614,16 +1629,17 @@ public class ExcelService {
         for (ColumnCalculation calc : columnCalculations) {
             if (!existingColumns.contains(calc.targetColumn)) {
                 // 添加新列到表头
-                int newColIndex = headerRow.getLastCellNum();
-                Cell newHeaderCell = headerRow.createCell(newColIndex);
+                int newColIndex = headerRowObj.getLastCellNum();
+                Cell newHeaderCell = headerRowObj.createCell(newColIndex);
                 newHeaderCell.setCellValue(calc.targetColumn);
                 outputColumnMap.put(calc.targetColumn, newColIndex);
                 existingColumns.add(calc.targetColumn);
             }
         }
 
-        // 对每一行应用运算
-        for (int i = 1; i <= outputSheet.getLastRowNum(); i++) {
+        // 对每一行应用运算（从表头行的下一行开始）
+        int dataStartRow = headerRow + 1;
+        for (int i = dataStartRow; i <= outputSheet.getLastRowNum(); i++) {
             Row row = outputSheet.getRow(i);
             if (row == null) continue;
 
@@ -1813,5 +1829,344 @@ public class ExcelService {
             closeQuietly(inputWorkbook);
             closeQuietly(outputWorkbook);
         }
+    }
+
+    /**
+     * 处理电子发票 - 合并出库数据到模板
+     * 如果出库数据在模板中不存在，则新增；如果存在，则更新数量
+     *
+     * @param templateFile 模板文件（电子票模版.xlsx）
+     * @param outboundFile 出库文件（东南国资出库电子票.xlsx）
+     * @param outputFile 输出文件
+     * @param templateHeaderRow 模板表头行号（从0开始）
+     * @param outboundHeaderRow 出库表头行号（从0开始）
+     * @param taxClassification 商品和服务税收分类编码
+     * @return 是否成功
+     */
+    public boolean processElectronicInvoice(File templateFile, File outboundFile, File outputFile,
+                                           int templateHeaderRow, int outboundHeaderRow,
+                                           String taxClassification) {
+        Workbook templateWorkbook = null;
+        Workbook outboundWorkbook = null;
+        Workbook outputWorkbook = null;
+
+        try {
+            // 读取工作簿
+            templateWorkbook = readWorkbook(templateFile);
+            outboundWorkbook = readWorkbook(outboundFile);
+            if (templateWorkbook == null || outboundWorkbook == null) {
+                System.err.println("无法读取 Excel 文件");
+                return false;
+            }
+
+            outputWorkbook = templateWorkbook.getClass().newInstance();
+
+            // 获取sheet页
+            Sheet templateSheet = templateWorkbook.getSheetAt(0);
+            Sheet outboundSheet = outboundWorkbook.getSheetAt(0);
+
+            // 读取表头
+            Row templateHeader = templateSheet.getRow(templateHeaderRow);
+            Row outboundHeader = outboundSheet.getRow(outboundHeaderRow);
+
+            if (templateHeader == null || outboundHeader == null) {
+                System.err.println("无法读取表头");
+                return false;
+            }
+
+            // 获取列名映射
+            Map<String, Integer> templateColumnMap = getColumnMapping(templateHeader);
+            Map<String, Integer> outboundColumnMap = getColumnMapping(outboundHeader);
+
+            // 验证必要的列是否存在
+            if (!templateColumnMap.containsKey("项目名称")) {
+                System.err.println("模板中缺少'项目名称'列");
+                return false;
+            }
+            if (!templateColumnMap.containsKey("商品数量")) {
+                System.err.println("模板中缺少'商品数量'列");
+                return false;
+            }
+            if (!templateColumnMap.containsKey("商品单价")) {
+                System.err.println("模板中缺少'商品单价'列");
+                return false;
+            }
+
+            if (!outboundColumnMap.containsKey("商品名称") && !outboundColumnMap.containsKey("商品编号")) {
+                System.err.println("出库文件中缺少'商品名称'或'商品编号'列");
+                return false;
+            }
+            if (!outboundColumnMap.containsKey("数量")) {
+                System.err.println("出库文件中缺少'数量'列");
+                return false;
+            }
+            if (!outboundColumnMap.containsKey("定价")) {
+                System.err.println("出库文件中缺少'定价'列");
+                return false;
+            }
+
+            // 复制模板到输出工作簿
+            copyWorkbook(templateWorkbook, outputWorkbook);
+            Sheet outputSheet = outputWorkbook.getSheetAt(0);
+
+            // 读取模板中的现有数据（项目名称 -> 行号）
+            Map<String, Integer> templateDataMap = new LinkedHashMap<>();
+            int dataStartRow = templateHeaderRow + 1;
+
+            for (int i = dataStartRow; i <= outputSheet.getLastRowNum(); i++) {
+                Row row = outputSheet.getRow(i);
+                if (row == null) continue;
+
+                Cell nameCell = row.getCell(templateColumnMap.get("项目名称"));
+                String name = getCellValueAsString(nameCell);
+                if (name != null && !name.trim().isEmpty()) {
+                    templateDataMap.put(name.trim(), i);
+                }
+            }
+
+            // 处理出库数据
+            int outboundDataStartRow = outboundHeaderRow + 1;
+            int newRowNum = outputSheet.getLastRowNum() + 1;  // 新行从最后开始
+
+            for (int i = outboundDataStartRow; i <= outboundSheet.getLastRowNum(); i++) {
+                Row outboundRow = outboundSheet.getRow(i);
+                if (outboundRow == null) continue;
+
+                // 获取商品名称（使用商品名称或商品编号作为匹配键）
+                String productName = "";
+                Integer productNameCol = outboundColumnMap.get("商品名称");
+                if (productNameCol != null) {
+                    productName = getCellValueAsString(outboundRow.getCell(productNameCol));
+                }
+
+                // 如果商品名称为空，尝试使用商品编号
+                if (productName == null || productName.trim().isEmpty()) {
+                    Integer productCodeCol = outboundColumnMap.get("商品编号");
+                    if (productCodeCol != null) {
+                        productName = getCellValueAsString(outboundRow.getCell(productCodeCol));
+                    }
+                }
+
+                if (productName == null || productName.trim().isEmpty()) {
+                    continue;  // 跳过没有商品名称的行
+                }
+                productName = productName.trim();
+
+                // 获取数量和单价（使用定价列）
+                Integer quantityCol = outboundColumnMap.get("数量");
+                Integer priceCol = outboundColumnMap.get("定价");
+
+                Double quantity = null;
+                Double price = null;
+
+                if (quantityCol != null) {
+                    Cell qtyCell = outboundRow.getCell(quantityCol);
+                    quantity = getNumericValueForInvoice(qtyCell);
+                }
+
+                if (priceCol != null) {
+                    Cell priceCell = outboundRow.getCell(priceCol);
+                    price = getNumericValueForInvoice(priceCell);
+                }
+
+                if (quantity == null || price == null) {
+                    continue;  // 跳过没有数量或单价的行
+                }
+
+                // 检查是否已存在于模板中
+                Integer existingRowNum = templateDataMap.get(productName);
+
+                if (existingRowNum != null) {
+                    // 已存在 - 更新数量
+                    Row existingRow = outputSheet.getRow(existingRowNum);
+                    if (existingRow != null) {
+                        Cell qtyCell = existingRow.getCell(templateColumnMap.get("商品数量"));
+                        if (qtyCell != null) {
+                            // 累加数量
+                            Double existingQty = getNumericValueForInvoice(qtyCell);
+                            if (existingQty != null) {
+                                qtyCell.setCellValue(existingQty + quantity);
+                            } else {
+                                qtyCell.setCellValue(quantity);
+                            }
+                        }
+                    }
+                } else {
+                    // 不存在 - 新增行
+                    int actualRowNum = newRowNum;  // 保存实际行号
+                    Row newRow = outputSheet.createRow(newRowNum++);
+
+                    // 创建所有单元格（复制模板中最后一行的格式）
+                    if (templateSheet.getLastRowNum() >= templateHeaderRow) {
+                        Row formatRow = templateSheet.getRow(templateSheet.getLastRowNum());
+                        if (formatRow != null) {
+                            for (int col = 0; col < templateHeader.getLastCellNum(); col++) {
+                                Cell formatCell = formatRow.getCell(col);
+                                if (formatCell != null) {
+                                    Cell newCell = newRow.createCell(col);
+                                    copyCell(formatCell, newCell, outputWorkbook);
+                                    newCell.setBlank();  // 清空值但保留格式
+                                }
+                            }
+                        }
+                    }
+
+                    // 设置项目名称
+                    Cell nameCell = newRow.getCell(templateColumnMap.get("项目名称"));
+                    if (nameCell == null) {
+                        nameCell = newRow.createCell(templateColumnMap.get("项目名称"));
+                    }
+                    nameCell.setCellValue(productName);
+
+                    // 设置商品数量
+                    Cell qtyCell = newRow.getCell(templateColumnMap.get("商品数量"));
+                    if (qtyCell == null) {
+                        qtyCell = newRow.createCell(templateColumnMap.get("商品数量"));
+                    }
+                    qtyCell.setCellValue(quantity);
+
+                    // 设置商品单价
+                    Cell priceCell = newRow.getCell(templateColumnMap.get("商品单价"));
+                    if (priceCell == null) {
+                        priceCell = newRow.createCell(templateColumnMap.get("商品单价"));
+                    }
+                    priceCell.setCellValue(price);
+
+                    // 设置商品和服务税收分类编码
+                    if (taxClassification != null && !taxClassification.isEmpty()) {
+                        if (templateColumnMap.containsKey("商品和服务税收分类编码")) {
+                            Cell taxClassCell = newRow.getCell(templateColumnMap.get("商品和服务税收分类编码"));
+                            if (taxClassCell == null) {
+                                taxClassCell = newRow.createCell(templateColumnMap.get("商品和服务税收分类编码"));
+                            }
+                            taxClassCell.setCellValue(taxClassification);
+                        }
+                    }
+
+                    // 设置单位（默认"册"）
+                    if (templateColumnMap.containsKey("单位")) {
+                        Cell unitCell = newRow.getCell(templateColumnMap.get("单位"));
+                        if (unitCell == null) {
+                            unitCell = newRow.createCell(templateColumnMap.get("单位"));
+                        }
+                        unitCell.setCellValue("册");
+                    }
+
+                    // 设置税率（默认0）
+                    if (templateColumnMap.containsKey("税率")) {
+                        Cell taxRateCell = newRow.getCell(templateColumnMap.get("税率"));
+                        if (taxRateCell == null) {
+                            taxRateCell = newRow.createCell(templateColumnMap.get("税率"));
+                        }
+                        taxRateCell.setCellValue(0);
+                    }
+
+                    // 设置优惠政策类型（默认"免税"）
+                    if (templateColumnMap.containsKey("优惠政策类型")) {
+                        Cell policyCell = newRow.getCell(templateColumnMap.get("优惠政策类型"));
+                        if (policyCell == null) {
+                            policyCell = newRow.createCell(templateColumnMap.get("优惠政策类型"));
+                        }
+                        policyCell.setCellValue("免税");
+                    }
+
+                    // 设置金额 = 商品单价 * 数量（使用Excel公式）
+                    if (templateColumnMap.containsKey("金额")) {
+                        int templatePriceCol = templateColumnMap.get("商品单价");
+                        int templateQtyCol = templateColumnMap.get("商品数量");
+                        int amountCol = templateColumnMap.get("金额");
+
+                        Cell amountCell = newRow.getCell(amountCol);
+                        if (amountCell == null) {
+                            amountCell = newRow.createCell(amountCol);
+                        }
+
+                        // 构建公式，如 E5*F5（不需要等号）
+                        String priceColRef = getCellReference(templatePriceCol, actualRowNum);
+                        String qtyColRef = getCellReference(templateQtyCol, actualRowNum);
+                        String formula = priceColRef + "*" + qtyColRef;
+                        amountCell.setCellFormula(formula);
+                    }
+
+                    // 添加到映射中，避免重复添加
+                    templateDataMap.put(productName, actualRowNum);
+                }
+            }
+
+            // 写入输出文件
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                outputWorkbook.write(fos);
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("处理电子发票时出错: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        } finally {
+            closeQuietly(templateWorkbook);
+            closeQuietly(outboundWorkbook);
+            closeQuietly(outputWorkbook);
+        }
+    }
+
+    /**
+     * 获取单元格的数值（用于电子发票处理）
+     */
+    private Double getNumericValueForInvoice(Cell cell) {
+        if (cell == null) {
+            return null;
+        }
+
+        switch (cell.getCellType()) {
+            case NUMERIC:
+                return cell.getNumericCellValue();
+            case STRING:
+                try {
+                    String str = cell.getStringCellValue().trim();
+                    if (str.isEmpty()) {
+                        return null;
+                    }
+                    return Double.parseDouble(str);
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            case BLANK:
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * 将列索引和行号转换为Excel单元格引用
+     * 例如：列索引4，行号4 -> "E5"
+     *
+     * @param colIndex 列索引（从0开始）
+     * @param rowNum   行号（从0开始）
+     * @return Excel单元格引用，如"E5"
+     */
+    private String getCellReference(int colIndex, int rowNum) {
+        // Excel行号从1开始
+        int excelRowNum = rowNum + 1;
+        return getColumnName(colIndex) + excelRowNum;
+    }
+
+    /**
+     * 将列索引转换为列名
+     * 例如：0->A, 1->B, 26->AA, 27->AB
+     *
+     * @param colIndex 列索引（从0开始）
+     * @return 列名，如"A", "B", "AA"
+     */
+    private String getColumnName(int colIndex) {
+        StringBuilder colName = new StringBuilder();
+        while (colIndex >= 0) {
+            int remainder = colIndex % 26;
+            colName.insert(0, (char) ('A' + remainder));
+            colIndex = colIndex / 26 - 1;
+        }
+        return colName.toString();
     }
 }

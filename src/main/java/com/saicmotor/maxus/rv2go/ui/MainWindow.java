@@ -98,11 +98,14 @@ public class MainWindow extends JFrame {
 
         // 功能按钮
         JButton btnExcelMerge = createFunctionButton("Excel 合并", "excelMerge", true);
+        JButton btnInvoice = createFunctionButton("电子发票", "invoice", false);
         JButton btnDataClean = createFunctionButton("数据清洗", "dataClean", false);
         JButton btnDataConvert = createFunctionButton("数据转换", "dataConvert", false);
         JButton btnDataExport = createFunctionButton("数据导出", "dataExport", false);
 
         panel.add(btnExcelMerge);
+        panel.add(Box.createVerticalStrut(8));
+        panel.add(btnInvoice);
         panel.add(Box.createVerticalStrut(8));
         panel.add(btnDataClean);
         panel.add(Box.createVerticalStrut(8));
@@ -193,6 +196,9 @@ public class MainWindow extends JFrame {
     private void addFunctionPanels() {
         // Excel 合并面板
         rightPanel.add(new ExcelMergePanel(), "excelMerge");
+
+        // 电子发票面板
+        rightPanel.add(new ElectronicInvoicePanel(), "invoice");
 
         // 数据清洗面板
         rightPanel.add(new DataCleanPanel(), "dataClean");

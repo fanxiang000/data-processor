@@ -37,8 +37,8 @@ public class ExcelMergePanel extends JPanel {
     private JList<String> mergeColumnsList;  // 合并列列表
     private DefaultListModel<String> mergeColumnsModel;  // 合并列列表模型
     private JCheckBox highlightMatchesCheckBox;  // 高亮匹配行复选框
-    private JTable columnCalcTable;  // 列运算表格
-    private ColumnCalcTableModel columnCalcTableModel;  // 列运算表格模型
+    private JTextField headerRow1Field;  // 表1表头开始行
+    private JTextField headerRow2Field;  // 表2表头开始行
     private JTextArea logArea;
     private JButton executeButton;
 
@@ -49,6 +49,10 @@ public class ExcelMergePanel extends JPanel {
     private int selectedSheetIndex1 = 0;  // 表1选中的sheet索引，默认0
     private int selectedSheetIndex2 = 0;  // 表2选中的sheet索引，默认0
 
+    // 存储表头开始行（从0开始）
+    private int headerRow1 = 0;  // 表1表头开始行，默认0
+    private int headerRow2 = 0;  // 表2表头开始行，默认0
+
     // 存储各表的列名
     private List<String> columns1;
     private List<String> columns2;
@@ -57,8 +61,6 @@ public class ExcelMergePanel extends JPanel {
     private List<String> joinKeyGroups;
     // 存储要合并的列名
     private List<String> columnsToMergeList;
-    // 存储列运算规则：目标列 = 列1 运算符 列2
-    private List<ColumnCalculation> columnCalculations;
 
     private final ExcelService excelService;
     private final Preferences prefs;
@@ -71,7 +73,6 @@ public class ExcelMergePanel extends JPanel {
         this.columns2 = new ArrayList<>();
         this.joinKeyGroups = new ArrayList<>();
         this.columnsToMergeList = new ArrayList<>();
-        this.columnCalculations = new ArrayList<>();
         initComponents();
     }
 
@@ -233,6 +234,19 @@ public class ExcelMergePanel extends JPanel {
         sheet1Combo.addActionListener(e -> onSheet1Changed());
         panel.add(sheet1Combo, gbc);
 
+        gbc.gridx = 2;
+        gbc.weightx = 0;
+        headerRow1Field = new JTextField("0");
+        headerRow1Field.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        headerRow1Field.setPreferredSize(new Dimension(50, 32));
+        headerRow1Field.setBackground(new Color(250, 252, 255));
+        headerRow1Field.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(220, 225, 230), 1),
+            BorderFactory.createEmptyBorder(6, 10, 6, 10)
+        ));
+        headerRow1Field.setToolTipText("表头开始的行号（从0开始，0表示第1行）");
+        panel.add(headerRow1Field, gbc);
+
         gbc.gridx = 0;
         gbc.weightx = 0;
         JLabel sheet1Label = new JLabel("Sheet页:");
@@ -289,6 +303,19 @@ public class ExcelMergePanel extends JPanel {
         ));
         sheet2Combo.addActionListener(e -> onSheet2Changed());
         panel.add(sheet2Combo, gbc);
+
+        gbc.gridx = 2;
+        gbc.weightx = 0;
+        headerRow2Field = new JTextField("0");
+        headerRow2Field.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+        headerRow2Field.setPreferredSize(new Dimension(50, 32));
+        headerRow2Field.setBackground(new Color(250, 252, 255));
+        headerRow2Field.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(220, 225, 230), 1),
+            BorderFactory.createEmptyBorder(6, 10, 6, 10)
+        ));
+        headerRow2Field.setToolTipText("表头开始的行号（从0开始，0表示第1行）");
+        panel.add(headerRow2Field, gbc);
 
         return panel;
     }
@@ -442,56 +469,6 @@ public class ExcelMergePanel extends JPanel {
         panel.add(highlightMatchesCheckBox, gbc);
         gbc.gridwidth = 1;
 
-        // 第八行：列运算配置标题
-        gbc.gridx = 0;
-        gbc.gridy = 7;
-        gbc.weightx = 0;
-        JLabel label3 = new JLabel("列运算:");
-        label3.setFont(labelFont);
-        label3.setForeground(labelColor);
-        panel.add(label3, gbc);
-
-        gbc.gridx = 1;
-        gbc.weightx = 1.0;
-        panel.add(Box.createHorizontalGlue(), gbc);
-
-        gbc.gridx = 2;
-        gbc.weightx = 0;
-        JButton btnAddCalc = createActionButton("添加运算");
-        btnAddCalc.setPreferredSize(new Dimension(80, 32));
-        btnAddCalc.addActionListener(e -> addColumnCalculation());
-        panel.add(btnAddCalc, gbc);
-
-        // 第九行：列运算表格
-        gbc.gridx = 0;
-        gbc.gridy = 8;
-        gbc.gridwidth = 3;
-        gbc.weightx = 1.0;
-        columnCalcTableModel = new ColumnCalcTableModel();
-        columnCalcTable = new JTable(columnCalcTableModel);
-        columnCalcTable.setFont(new Font("微软雅黑", Font.PLAIN, 13));
-        columnCalcTable.setRowHeight(28);
-        columnCalcTable.getTableHeader().setFont(new Font("微软雅黑", Font.BOLD, 12));
-        columnCalcTable.getTableHeader().setForeground(new Color(52, 73, 94));
-        columnCalcTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        columnCalcTable.setGridColor(new Color(235, 240, 245));
-        JScrollPane calcTableScrollPane = new JScrollPane(columnCalcTable);
-        calcTableScrollPane.setPreferredSize(new Dimension(0, 80));
-        calcTableScrollPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
-        calcTableScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        calcTableScrollPane.setBorder(BorderFactory.createLineBorder(new Color(220, 225, 230), 1));
-        panel.add(calcTableScrollPane, gbc);
-        gbc.gridwidth = 1;
-
-        // 第十行：删除列运算按钮
-        gbc.gridx = 2;
-        gbc.gridy = 9;
-        gbc.weightx = 0;
-        JButton btnRemoveCalc = createActionButton("删除");
-        btnRemoveCalc.setPreferredSize(new Dimension(60, 28));
-        btnRemoveCalc.addActionListener(e -> removeColumnCalculation());
-        panel.add(btnRemoveCalc, gbc);
-
         // 隐藏的字段（保留用于兼容）
         joinKeysField = new JTextField();
         joinKeysField.setVisible(false);
@@ -616,6 +593,19 @@ public class ExcelMergePanel extends JPanel {
             return;
         }
 
+        // 读取表头开始行
+        try {
+            headerRow1 = Integer.parseInt(headerRow1Field.getText().trim());
+            headerRow2 = Integer.parseInt(headerRow2Field.getText().trim());
+            if (headerRow1 < 0 || headerRow2 < 0) {
+                JOptionPane.showMessageDialog(this, "表头开始行不能为负数", "错误", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "表头开始行必须是有效的整数", "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
         // 禁用按钮
         executeButton.setEnabled(false);
         logArea.setText("开始执行合并操作...\n");
@@ -626,14 +616,18 @@ public class ExcelMergePanel extends JPanel {
         final List<String> joinKeyGroupsList = new ArrayList<>(joinKeyGroups);
         final List<String> columnsToMergeListFinal = new ArrayList<>(columnsToMergeList);
         final boolean highlightMatches = highlightMatchesCheckBox.isSelected();
+        final int headerRow1Final = headerRow1;
+        final int headerRow2Final = headerRow2;
 
-        // 转换列运算规则为Service格式
-        final List<ExcelService.ColumnCalculation> columnCalculationsService = new ArrayList<>();
-        for (ColumnCalculation calc : columnCalculations) {
-            columnCalculationsService.add(new ExcelService.ColumnCalculation(
-                calc.targetColumn, calc.column1, calc.operator, calc.column2
-            ));
+        // 选择输出文件路径（在后台线程之前）
+        String outputFileName = "merged_" + file1.getName();
+        File outputFile = chooseSaveFile(outputFileName);
+        if (outputFile == null) {
+            executeButton.setEnabled(true);
+            logArea.append("用户取消了保存操作\n");
+            return;
         }
+        final File finalOutputFile = outputFile;
 
         // 在后台线程执行
         new SwingWorker<Boolean, String>() {
@@ -655,30 +649,29 @@ public class ExcelMergePanel extends JPanel {
                     }
                 }
                 publish("合并列: " + String.join(", ", columnsArray));
+                publish("表1表头行: " + (headerRow1Final + 1));
+                publish("表2表头行: " + (headerRow2Final + 1));
 
-                // 生成输出文件路径
-                String outputPath = file1.getParent();
-                String outputFileName = "merged_" + file1.getName();
-                final File outputFile = new File(outputPath, outputFileName);
-
+                publish("输出文件: " + finalOutputFile.getAbsolutePath());
                 publish("开始执行合并...");
                 boolean success = excelService.mergeExcelFilesWithMultipleJoinGroups(
                         file1,
                         file2,
                         selectedSheetIndex1,
                         selectedSheetIndex2,
+                        headerRow1Final,
+                        headerRow2Final,
                         joinKeyGroupsList,
                         columnsArray,
                         null,
-                        outputFile,
+                        finalOutputFile,
                         highlightMatches,
-                        columnCalculationsService
+                        null
                 );
 
                 if (success) {
-                    lastOutputFile = outputFile;  // 保存输出文件路径
+                    lastOutputFile = finalOutputFile;  // 保存输出文件路径
                     publish("合并完成！");
-                    publish("输出文件: " + outputFile.getAbsolutePath());
                 } else {
                     publish("合并失败，请检查日志");
                 }
@@ -802,6 +795,59 @@ public class ExcelMergePanel extends JPanel {
 
         // 更新列表显示
         updateJoinKeyGroupsList();
+    }
+
+    /**
+     * 选择保存文件路径
+     */
+    private File chooseSaveFile(String defaultFileName) {
+        JFileChooser fileChooser = new JFileChooser();
+
+        // 恢复上次打开的目录
+        String lastPath = prefs.get("lastDirectory", null);
+        if (lastPath != null) {
+            File lastDir = new File(lastPath);
+            if (lastDir.exists() && lastDir.isDirectory()) {
+                fileChooser.setCurrentDirectory(lastDir);
+            }
+        }
+
+        fileChooser.setDialogTitle("选择保存位置");
+        fileChooser.setSelectedFile(new File(defaultFileName));
+
+        fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
+            @Override
+            public boolean accept(File f) {
+                return f.isDirectory() || f.getName().toLowerCase().endsWith(".xlsx")
+                        || f.getName().toLowerCase().endsWith(".xls");
+            }
+
+            @Override
+            public String getDescription() {
+                return "Excel 文件 (*.xlsx, *.xls)";
+            }
+        });
+
+        int result = fileChooser.showSaveDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
+
+            // 保存当前目录到 Preferences
+            File currentDir = fileChooser.getCurrentDirectory();
+            if (currentDir != null) {
+                prefs.put("lastDirectory", currentDir.getAbsolutePath());
+            }
+
+            // 确保文件有扩展名
+            String fileName = selectedFile.getName();
+            if (!fileName.toLowerCase().endsWith(".xlsx") && !fileName.toLowerCase().endsWith(".xls")) {
+                selectedFile = new File(selectedFile.getParentFile(), fileName + ".xlsx");
+            }
+
+            return selectedFile;
+        }
+
+        return null;  // 用户取消
     }
 
     /**
@@ -1735,323 +1781,4 @@ public class ExcelMergePanel extends JPanel {
         }
     }
 
-    /**
-     * 列运算规则
-     */
-    private static class ColumnCalculation {
-        String targetColumn;  // 目标列
-        String column1;       // 第一列
-        String operator;      // 运算符：+, -, *, /
-        String column2;       // 第二列
-
-        ColumnCalculation(String targetColumn, String column1, String operator, String column2) {
-            this.targetColumn = targetColumn;
-            this.column1 = column1;
-            this.operator = operator;
-            this.column2 = column2;
-        }
-
-        @Override
-        public String toString() {
-            String opSymbol;
-            switch (operator) {
-                case "add": opSymbol = "+"; break;
-                case "subtract": opSymbol = "-"; break;
-                case "multiply": opSymbol = "×"; break;
-                case "divide": opSymbol = "÷"; break;
-                default: opSymbol = operator;
-            }
-            return targetColumn + " = " + column1 + " " + opSymbol + " " + column2;
-        }
-    }
-
-    /**
-     * 列运算表格模型
-     */
-    private static class ColumnCalcTableModel extends AbstractTableModel {
-        private List<ColumnCalculation> data;
-        private final String[] columnNames = {"目标列", "列1", "运算", "列2"};
-
-        public ColumnCalcTableModel() {
-            this.data = new ArrayList<>();
-        }
-
-        public void setData(List<ColumnCalculation> data) {
-            this.data = new ArrayList<>(data);
-            fireTableDataChanged();
-        }
-
-        @Override
-        public int getRowCount() {
-            return data.size();
-        }
-
-        @Override
-        public int getColumnCount() {
-            return columnNames.length;
-        }
-
-        @Override
-        public String getColumnName(int column) {
-            return columnNames[column];
-        }
-
-        @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
-            if (rowIndex >= 0 && rowIndex < data.size()) {
-                ColumnCalculation calc = data.get(rowIndex);
-                switch (columnIndex) {
-                    case 0:
-                        return calc.targetColumn;
-                    case 1:
-                        return calc.column1;
-                    case 2:
-                        switch (calc.operator) {
-                            case "add": return "+";
-                            case "subtract": return "-";
-                            case "multiply": return "×";
-                            case "divide": return "÷";
-                            default: return calc.operator;
-                        }
-                    case 3:
-                        return calc.column2;
-                }
-            }
-            return "";
-        }
-    }
-
-    /**
-     * 添加列运算
-     */
-    private void addColumnCalculation() {
-        // 获取所有可用的列（表1的列 + 合并后的表2的列）
-        List<String> availableColumns = new ArrayList<>();
-        if (columns1 != null) {
-            availableColumns.addAll(columns1);
-        }
-        if (columns2 != null) {
-            for (String col : columnsToMergeList) {
-                if (!availableColumns.contains(col)) {
-                    availableColumns.add(col);
-                }
-            }
-        }
-
-        if (availableColumns.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请先选择文件和合并列", "提示", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
-        ColumnCalcDialog dialog = new ColumnCalcDialog(
-            (JFrame) SwingUtilities.getWindowAncestor(this),
-            "添加列运算",
-            availableColumns
-        );
-        dialog.setVisible(true);
-
-        ColumnCalculation calc = dialog.getCalculation();
-        if (calc != null) {
-            columnCalculations.add(calc);
-            columnCalcTableModel.setData(columnCalculations);
-        }
-    }
-
-    /**
-     * 删除选中的列运算
-     */
-    private void removeColumnCalculation() {
-        int selectedIndex = columnCalcTable.getSelectedRow();
-        if (selectedIndex >= 0) {
-            columnCalculations.remove(selectedIndex);
-            columnCalcTableModel.setData(columnCalculations);
-        } else {
-            JOptionPane.showMessageDialog(this, "请先选择要删除的列运算", "提示", JOptionPane.INFORMATION_MESSAGE);
-        }
-    }
-
-    /**
-     * 列运算配置对话框
-     */
-    private class ColumnCalcDialog extends JDialog {
-        private JComboBox<String> targetColumnCombo;
-        private JComboBox<String> column1Combo;
-        private JComboBox<String> operatorCombo;
-        private JComboBox<String> column2Combo;
-        private JButton okButton;
-        private JButton cancelButton;
-        private ColumnCalculation calculation;
-
-        private final String[] OPERATORS = {"+", "-", "×", "÷"};
-
-        public ColumnCalcDialog(JFrame parent, String title, List<String> availableColumns) {
-            super(parent, title, true);
-            initComponents(availableColumns);
-            setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-            pack();
-            setLocationRelativeTo(parent);
-        }
-
-        private void initComponents(List<String> availableColumns) {
-            setLayout(new BorderLayout(10, 10));
-            ((JComponent) getContentPane()).setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-
-            // 顶部说明
-            JLabel hintLabel = new JLabel("设置列运算规则：目标列 = 列1 运算符 列2");
-            hintLabel.setFont(new Font("微软雅黑", Font.BOLD, 13));
-            hintLabel.setForeground(new Color(52, 73, 94));
-            add(hintLabel, BorderLayout.NORTH);
-
-            // 中间配置面板
-            JPanel configPanel = new JPanel(new GridBagLayout());
-            configPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(new Color(200, 205, 210), 1),
-                "运算配置",
-                javax.swing.border.TitledBorder.LEFT,
-                javax.swing.border.TitledBorder.TOP,
-                new Font("微软雅黑", Font.BOLD, 12),
-                new Color(52, 73, 94)
-            ));
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(8, 10, 8, 10);
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.anchor = GridBagConstraints.WEST;
-
-            Font labelFont = new Font("微软雅黑", Font.PLAIN, 13);
-            Font comboFont = new Font("微软雅黑", Font.PLAIN, 13);
-
-            // 目标列
-            gbc.gridx = 0;
-            gbc.gridy = 0;
-            gbc.weightx = 0;
-            JLabel targetLabel = new JLabel("目标列:");
-            targetLabel.setFont(labelFont);
-            configPanel.add(targetLabel, gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1.0;
-            targetColumnCombo = new JComboBox<>();
-            targetColumnCombo.setFont(comboFont);
-            targetColumnCombo.setPreferredSize(new Dimension(200, 28));
-            targetColumnCombo.setEditable(true);
-            for (String col : availableColumns) {
-                targetColumnCombo.addItem(col);
-            }
-            configPanel.add(targetColumnCombo, gbc);
-
-            // 列1
-            gbc.gridx = 0;
-            gbc.gridy = 1;
-            gbc.weightx = 0;
-            JLabel col1Label = new JLabel("列1:");
-            col1Label.setFont(labelFont);
-            configPanel.add(col1Label, gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1.0;
-            column1Combo = new JComboBox<>();
-            column1Combo.setFont(comboFont);
-            column1Combo.setPreferredSize(new Dimension(200, 28));
-            for (String col : availableColumns) {
-                column1Combo.addItem(col);
-            }
-            configPanel.add(column1Combo, gbc);
-
-            // 运算符
-            gbc.gridx = 0;
-            gbc.gridy = 2;
-            gbc.weightx = 0;
-            JLabel opLabel = new JLabel("运算符:");
-            opLabel.setFont(labelFont);
-            configPanel.add(opLabel, gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1.0;
-            operatorCombo = new JComboBox<>(OPERATORS);
-            operatorCombo.setFont(comboFont);
-            operatorCombo.setPreferredSize(new Dimension(200, 28));
-            configPanel.add(operatorCombo, gbc);
-
-            // 列2
-            gbc.gridx = 0;
-            gbc.gridy = 3;
-            gbc.weightx = 0;
-            JLabel col2Label = new JLabel("列2:");
-            col2Label.setFont(labelFont);
-            configPanel.add(col2Label, gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1.0;
-            column2Combo = new JComboBox<>();
-            column2Combo.setFont(comboFont);
-            column2Combo.setPreferredSize(new Dimension(200, 28));
-            for (String col : availableColumns) {
-                column2Combo.addItem(col);
-            }
-            configPanel.add(column2Combo, gbc);
-
-            add(configPanel, BorderLayout.CENTER);
-
-            // 底部按钮
-            JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            okButton = new JButton("确定");
-            okButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            okButton.setPreferredSize(new Dimension(70, 28));
-            okButton.addActionListener(e -> confirmCalculation());
-            cancelButton = new JButton("取消");
-            cancelButton.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            cancelButton.setPreferredSize(new Dimension(70, 28));
-            cancelButton.addActionListener(e -> {
-                calculation = null;
-                dispose();
-            });
-            bottomPanel.add(okButton);
-            bottomPanel.add(cancelButton);
-            add(bottomPanel, BorderLayout.SOUTH);
-
-            getRootPane().setDefaultButton(okButton);
-        }
-
-        private void confirmCalculation() {
-            Object target = targetColumnCombo.getSelectedItem();
-            Object col1 = column1Combo.getSelectedItem();
-            Object op = operatorCombo.getSelectedItem();
-            Object col2 = column2Combo.getSelectedItem();
-
-            if (target == null || target.toString().trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this, "请输入或选择目标列", "提示", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            if (col1 == null || col1.toString().trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this, "请选择列1", "提示", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            if (col2 == null || col2.toString().trim().isEmpty()) {
-                JOptionPane.showMessageDialog(this, "请选择列2", "提示", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-
-            String targetCol = target.toString().trim();
-            String col1Str = col1.toString().trim();
-            String opStr = op.toString();
-            String col2Str = col2.toString().trim();
-
-            // 转换运算符
-            String operator;
-            switch (opStr) {
-                case "+": operator = "add"; break;
-                case "-": operator = "subtract"; break;
-                case "×": operator = "multiply"; break;
-                case "÷": operator = "divide"; break;
-                default: operator = "add";
-            }
-
-            calculation = new ColumnCalculation(targetCol, col1Str, operator, col2Str);
-            dispose();
-        }
-
-        public ColumnCalculation getCalculation() {
-            return calculation;
-        }
-    }
 }
