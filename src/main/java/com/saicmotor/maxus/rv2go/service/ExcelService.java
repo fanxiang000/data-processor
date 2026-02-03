@@ -755,16 +755,18 @@ public class ExcelService {
 
     /**
      * 读取 Excel 工作簿
-     * 对于 xlsx 文件使用 File 构造以支持部分加载（节省内存）
+     * 使用安全的方式避免 Windows 上的 KERNELBASE.dll 错误
      */
     private Workbook readWorkbook(File file) {
         try {
             String fileName = file.getName().toLowerCase();
             if (fileName.endsWith(".xlsx")) {
-                // 使用 File 构造 XSSFWorkbook，支持部分加载，节省内存
-                return new XSSFWorkbook(file);
+                // 使用 FileInputStream 读取 xlsx，然后立即关闭流
+                // XSSFWorkbook 会将所有数据读取到内存中
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    return new XSSFWorkbook(fis);
+                }
             } else if (fileName.endsWith(".xls")) {
-                // HSSFWorkbook 需要使用 InputStream
                 try (FileInputStream fis = new FileInputStream(file)) {
                     return WorkbookFactory.create(fis);
                 }
@@ -1454,15 +1456,9 @@ public class ExcelService {
         targetStyle.setRightBorderColor(sourceStyle.getRightBorderColor());
         targetStyle.setTopBorderColor(sourceStyle.getTopBorderColor());
 
-        // 复制填充色（使用XSSFColor正确处理）
-        XSSFColor fillBgColor = sourceStyle.getFillBackgroundColorColor();
-        XSSFColor fillFgColor = sourceStyle.getFillForegroundColorColor();
-        if (fillBgColor != null) {
-            targetStyle.setFillBackgroundColor(fillBgColor);
-        }
-        if (fillFgColor != null) {
-            targetStyle.setFillForegroundColor(fillFgColor);
-        }
+        // 复制填充色
+        targetStyle.setFillBackgroundColor(sourceStyle.getFillBackgroundColor());
+        targetStyle.setFillForegroundColor(sourceStyle.getFillForegroundColor());
         targetStyle.setFillPattern(sourceStyle.getFillPattern());
 
         // 复制字体
@@ -2044,14 +2040,14 @@ public class ExcelService {
                         }
                     }
 
-                    // 设置整行背景色为无填充（直接应用共享样式）
+                    // 设置数据行背景色为无填充（前3行表头保持原样）
+                    // 注意：copyCell 已经为新行创建了新样式，只需要修改填充模式
                     for (int col = 0; col < templateHeader.getLastCellNum(); col++) {
                         Cell cell = newRow.getCell(col);
                         if (cell != null) {
-                            // 只设置无填充，保留其他样式
-                            CellStyle originalStyle = cell.getCellStyle();
-                            if (originalStyle != null) {
-                                originalStyle.setFillPattern(FillPatternType.NO_FILL);
+                            CellStyle cellStyle = cell.getCellStyle();
+                            if (cellStyle != null) {
+                                cellStyle.setFillPattern(FillPatternType.NO_FILL);
                             }
                         }
                     }
