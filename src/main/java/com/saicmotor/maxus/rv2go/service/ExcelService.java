@@ -755,16 +755,23 @@ public class ExcelService {
 
     /**
      * 读取 Excel 工作簿
+     * 对于 xlsx 文件使用 File 构造以支持部分加载（节省内存）
      */
     private Workbook readWorkbook(File file) {
-        try (FileInputStream fis = new FileInputStream(file)) {
+        try {
             String fileName = file.getName().toLowerCase();
             if (fileName.endsWith(".xlsx")) {
-                return new XSSFWorkbook(fis);
+                // 使用 File 构造 XSSFWorkbook，支持部分加载，节省内存
+                return new XSSFWorkbook(file);
             } else if (fileName.endsWith(".xls")) {
-                return WorkbookFactory.create(fis);
+                // HSSFWorkbook 需要使用 InputStream
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    return WorkbookFactory.create(fis);
+                }
             }
         } catch (IOException e) {
+            System.err.println("读取文件失败: " + file.getAbsolutePath() + " - " + e.getMessage());
+        } catch (Exception e) {
             System.err.println("读取文件失败: " + file.getAbsolutePath() + " - " + e.getMessage());
         }
         return null;
@@ -1909,9 +1916,18 @@ public class ExcelService {
             copyWorkbook(templateWorkbook, outputWorkbook);
             Sheet outputSheet = outputWorkbook.getSheetAt(0);
 
-            // 读取模板中的现有数据（项目名称 -> 行号）
-            Map<String, Integer> templateDataMap = new LinkedHashMap<>();
+            // 清空模板中的原有数据行（每次处理都清空）
             int dataStartRow = templateHeaderRow + 1;
+            for (int i = dataStartRow; i <= outputSheet.getLastRowNum(); i++) {
+                Row row = outputSheet.getRow(i);
+                if (row != null) {
+                    // 移除整行
+                    outputSheet.removeRow(row);
+                }
+            }
+
+            // 读取模板中的现有数据（项目名称 -> 行号），用于匹配
+            Map<String, Integer> templateDataMap = new LinkedHashMap<>();
 
             for (int i = dataStartRow; i <= outputSheet.getLastRowNum(); i++) {
                 Row row = outputSheet.getRow(i);
@@ -1927,6 +1943,23 @@ public class ExcelService {
             // 处理出库数据
             int outboundDataStartRow = outboundHeaderRow + 1;
             int newRowNum = outputSheet.getLastRowNum() + 1;  // 新行从最后开始
+
+            // 创建共享的样式对象，避免在循环中重复创建（防止内存泄漏）
+            DataFormat dataFormat = outputWorkbook.createDataFormat();
+
+            // 无填充样式（用于普通单元格）
+            CellStyle noFillStyle = outputWorkbook.createCellStyle();
+            noFillStyle.setFillPattern(FillPatternType.NO_FILL);
+
+            // 两位小数格式样式（用于商品单价）
+            CellStyle priceStyle = outputWorkbook.createCellStyle();
+            priceStyle.setDataFormat(dataFormat.getFormat("0.00"));
+            priceStyle.setFillPattern(FillPatternType.NO_FILL);
+
+            // 两位小数格式样式（用于金额）
+            CellStyle amountStyle = outputWorkbook.createCellStyle();
+            amountStyle.setDataFormat(dataFormat.getFormat("0.00"));
+            amountStyle.setFillPattern(FillPatternType.NO_FILL);
 
             for (int i = outboundDataStartRow; i <= outboundSheet.getLastRowNum(); i++) {
                 Row outboundRow = outboundSheet.getRow(i);
@@ -2011,6 +2044,18 @@ public class ExcelService {
                         }
                     }
 
+                    // 设置整行背景色为无填充（直接应用共享样式）
+                    for (int col = 0; col < templateHeader.getLastCellNum(); col++) {
+                        Cell cell = newRow.getCell(col);
+                        if (cell != null) {
+                            // 只设置无填充，保留其他样式
+                            CellStyle originalStyle = cell.getCellStyle();
+                            if (originalStyle != null) {
+                                originalStyle.setFillPattern(FillPatternType.NO_FILL);
+                            }
+                        }
+                    }
+
                     // 设置项目名称
                     Cell nameCell = newRow.getCell(templateColumnMap.get("项目名称"));
                     if (nameCell == null) {
@@ -2025,12 +2070,14 @@ public class ExcelService {
                     }
                     qtyCell.setCellValue(quantity);
 
-                    // 设置商品单价
+                    // 设置商品单价（保留两位小数）
                     Cell priceCell = newRow.getCell(templateColumnMap.get("商品单价"));
                     if (priceCell == null) {
                         priceCell = newRow.createCell(templateColumnMap.get("商品单价"));
                     }
                     priceCell.setCellValue(price);
+                    // 设置两位小数格式和无填充（使用共享样式）
+                    priceCell.setCellStyle(priceStyle);
 
                     // 设置商品和服务税收分类编码
                     if (taxClassification != null && !taxClassification.isEmpty()) {
@@ -2086,12 +2133,17 @@ public class ExcelService {
                         String qtyColRef = getCellReference(templateQtyCol, actualRowNum);
                         String formula = priceColRef + "*" + qtyColRef;
                         amountCell.setCellFormula(formula);
+                        // 设置两位小数格式和无填充（使用共享样式）
+                        amountCell.setCellStyle(amountStyle);
                     }
 
                     // 添加到映射中，避免重复添加
                     templateDataMap.put(productName, actualRowNum);
                 }
             }
+
+            // 冻结前3行
+            outputSheet.createFreezePane(0, 3);
 
             // 写入输出文件
             try (FileOutputStream fos = new FileOutputStream(outputFile)) {
